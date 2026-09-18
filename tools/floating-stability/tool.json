@@ -1,0 +1,8 @@
+{
+  "name": "Floating platform stability",
+  "description": "Why a floating wind turbine stays upright. Move ballast, spread the columns and change the moorings, and watch the design slide around the stability triangle between a spar, a semi-submersible and a tension-leg platform.",
+  "status": "live",
+  "entry": "index.html",
+  "tags": ["offshore", "floating-wind", "hydrostatics", "moorings"],
+  "course": "46000 Introduction to Wind Energy"
+}

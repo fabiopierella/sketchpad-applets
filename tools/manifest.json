@@ -1,3 +1,6 @@
 {
-  "tools": ["modal-beam"]
+  "tools": [
+    "modal-beam",
+    "floating-stability"
+  ]
 }

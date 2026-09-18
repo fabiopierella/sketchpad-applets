@@ -1,0 +1,1111 @@
+<title>Floating Platform Stability</title>
+<style>
+  :root {
+    --bg: #f7f7f4;      --panel: #ffffff;   --ink: #1b1b19;
+    --soft: #56564f;    --muted: #8a8a80;   --rule: #dedcd4;
+    --wp: #2c5aa0;      --bal: #2f6f4f;     --moor: #c0722b;
+    --hot: #c0392b;     --hull: #33332e;    --sea: #cfe0ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #171815;    --panel: #1f201d;   --ink: #ecebe3;
+      --soft: #b4b3aa;  --muted: #85847b;   --rule: #33342e;
+      --wp: #7ba3d8;    --bal: #6fb891;     --moor: #dda15e;
+      --hot: #e0806e;   --hull: #d6d5cc;    --sea: #24333d;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #171815;      --panel: #1f201d;   --ink: #ecebe3;
+    --soft: #b4b3aa;    --muted: #85847b;   --rule: #33342e;
+    --wp: #7ba3d8;      --bal: #6fb891;     --moor: #dda15e;
+    --hot: #e0806e;     --hull: #d6d5cc;    --sea: #24333d;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 14px 14px 32px;
+    background: var(--bg); color: var(--ink);
+    font-family: "Helvetica Neue", system-ui, sans-serif;
+    font-size: 15px; line-height: 1.45;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 64rem; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+  header h1 { font-size: 1.25rem; margin: 0; letter-spacing: -0.01em; }
+  header p { margin: 3px 0 0; color: var(--soft); font-size: 0.86rem; }
+
+  .nums { display: flex; flex-wrap: wrap; gap: 6px; }
+  .num {
+    display: flex; flex-direction: column; gap: 1px;
+    padding: 5px 10px; border: 1px solid var(--rule); border-radius: 7px;
+    background: var(--panel); min-width: 84px;
+  }
+  .num b {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.92rem; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .num span { font-size: 0.66rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .num.warn b { color: var(--hot); }
+
+  .stage { display: grid; grid-template-columns: 1.1fr 1fr; gap: 12px; align-items: start; }
+  .col { display: flex; flex-direction: column; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 9px; padding: 8px 10px 4px; }
+  .card h2 {
+    font-size: 0.66rem; font-weight: 600; margin: 0 0 4px;
+    text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted);
+  }
+  canvas { display: block; width: 100%; touch-action: manipulation; }
+
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 10px 18px; }
+  .ctl { display: flex; flex-direction: column; gap: 2px; }
+  .ctl .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .ctl label { font-size: 0.82rem; color: var(--soft); }
+  .ctl output {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.78rem; font-variant-numeric: tabular-nums; color: var(--ink);
+  }
+  input[type=range] { width: 100%; accent-color: var(--wp); height: 26px; }
+
+  .buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+  button {
+    font: inherit; font-size: 0.84rem; min-height: 38px; padding: 0 13px;
+    border: 1px solid var(--rule); border-radius: 7px;
+    background: var(--panel); color: var(--ink); cursor: pointer;
+  }
+  button.on { background: var(--wp); border-color: var(--wp); color: #fff; }
+  button:focus-visible { outline: 2px solid var(--wp); outline-offset: 2px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.74rem; color: var(--soft); }
+  .key { display: inline-flex; align-items: center; gap: 5px; }
+  .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+  .try {
+    border-left: 3px solid var(--moor); padding: 2px 0 2px 11px;
+    font-size: 0.86rem; color: var(--soft);
+  }
+  .foot { font-size: 0.74rem; color: var(--muted); }
+
+  @media (max-width: 680px) { .stage { grid-template-columns: 1fr; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Floating Platform Stability</h1>
+    <p>Three ways to keep a floating turbine upright &mdash; ballast, waterplane, mooring. Move the sliders and watch which one is doing the work.</p>
+  </header>
+
+  <div class="nums" id="nums"></div>
+
+  <div class="stage">
+    <div class="col">
+      <div class="card">
+        <h2>Platform</h2>
+        <canvas id="hull" height="430"></canvas>
+      </div>
+      <div class="card">
+        <h2>Mooring layout</h2>
+        <canvas id="moor" height="215"></canvas>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card">
+        <h2>Stability triangle</h2>
+        <canvas id="tri" height="330"></canvas>
+      </div>
+      <div class="card">
+        <h2>Free decay</h2>
+        <canvas id="decay" height="165"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span class="key"><i class="sw" style="background:var(--wp)"></i>waterplane</span>
+    <span class="key"><i class="sw" style="background:var(--bal)"></i>ballast</span>
+    <span class="key"><i class="sw" style="background:var(--moor)"></i>mooring</span>
+  </div>
+
+  <div class="controls">
+    <div class="ctl">
+      <div class="row"><label for="hdep">Hull depth</label><output id="hdepOut"></output></div>
+      <input type="range" id="hdep" min="25" max="140" step="1" value="40">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="diam">Column diameter</label><output id="diamOut"></output></div>
+      <input type="range" id="diam" min="8" max="34" step="1" value="22">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="spac">Column spacing</label><output id="spacOut"></output></div>
+      <input type="range" id="spac" min="10" max="130" step="1" value="52">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="mbal">Ballast mass</label><output id="mbalOut"></output></div>
+      <input type="range" id="mbal" min="0" max="300" step="1" value="120">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="zbal">Ballast height</label><output id="zbalOut"></output></div>
+      <input type="range" id="zbal" min="1" max="100" step="1" value="15">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="anch">Anchor radius</label><output id="anchOut"></output></div>
+      <input type="range" id="anch" min="5" max="1200" step="5" value="800">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="llen">Line length</label><output id="llenOut"></output></div>
+      <input type="range" id="llen" min="150" max="1600" step="5" value="850">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="lwt">Line weight</label><output id="lwtOut"></output></div>
+      <input type="range" id="lwt" min="1" max="500" step="1" value="180">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="thr">Wind thrust</label><output id="thrOut"></output></div>
+      <input type="range" id="thr" min="0" max="500" step="5" value="240">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="damp">Damping</label><output id="dampOut"></output></div>
+      <input type="range" id="damp" min="1" max="200" step="1" value="50">
+    </div>
+  </div>
+
+  <div class="buttons">
+    <button id="pSpar">Spar</button>
+    <button id="pSemi">Semi-sub</button>
+    <button id="pTlp">TLP</button>
+    <button id="pluckP">Pluck pitch</button>
+    <button id="pluckS">Pluck surge</button>
+    <button id="stop">Still</button>
+  </div>
+
+  <p class="try" id="try"><b>Try this.</b> Start from Semi-sub and drag the ballast up. Watch the green share shrink, go negative, and the platform start to lean under the same thrust &mdash; a high centre of gravity does not merely fail to help, it costs you.</p>
+  <p class="foot" id="foot"></p>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ maths
+ * A floating wind platform in two dimensions: surge, heave and pitch.
+ *
+ * The hull is two vertical circular columns of diameter D, spaced s apart,
+ * with ballast at an adjustable height and the tower and rotor on top. Each
+ * column is treated as a strip: its submerged length is measured along its own
+ * axis, which makes the buoyancy force and its point of action fall out of the
+ * geometry rather than being assumed. The one thing a strip model cannot see is
+ * each column's own waterplane circle, so that term is added explicitly.
+ *
+ * Everything else is one function, `forces`, giving the net force and the
+ * moment conjugate to pitch. Equilibrium is Newton's method on that function;
+ * the stiffness matrix is its numerical derivative. Nothing here needs a
+ * hand-derived restoring term, which is where the sign errors usually live.
+ *
+ * The check that the model is right: the pitch stiffness found by
+ * differentiating the forces must equal the textbook rho*g*V*GM, with
+ * GM = KB + BM - KG. verify.mjs holds it to 0.01%.
+ *
+ * Coordinates: x across (downwind positive), z up, zero at still water. Body
+ * coordinates xi and zeta are measured from the centre of the keel. Positive
+ * pitch leans the tower downwind.
+ */
+const RHO = 1025;        // sea water, kg/m^3
+const G = 9.81;
+const C_SHELL = 500;     // hull steel per square metre of column shell, kg/m^2
+const C_BRACE = 12000;   // pontoon and bracing per metre of column spacing, kg/m
+const TOWER_UP = 35;     // tower and rotor centroid, above the top of the hull, m
+const HUB_UP = 125;      // hub, above the top of the hull, m
+const ALL = { buoy: true, weight: true, thrust: true, moor: true };
+
+/**
+ * The tower sits on the hull, so both of these follow the hull depth rather
+ * than being set separately. Deepening the hull to make a spar pushes the
+ * rotor up with it, which is part of why a spar needs so much ballast.
+ */
+function towerCoG(P) { return P.Hc + TOWER_UP; }
+function hubHeight(P) { return P.Hc + HUB_UP; }
+
+/** Waterplane area of one column. */
+function colArea(D) {
+  return (Math.PI * D * D) / 4;
+}
+
+/** A single column's own waterplane second moment of area. */
+function colInertia(D) {
+  return (Math.PI * Math.pow(D, 4)) / 64;
+}
+
+/**
+ * Every point mass, in body coordinates from the centre of the keel.
+ *
+ * Steel scales with the column shell area and the bracing with the spacing, so
+ * a wider, fatter hull costs mass rather than being free.
+ */
+function massList(P) {
+  return [
+    { m: C_SHELL * 2 * Math.PI * P.D * P.Hc, xi: 0, zeta: P.Hc / 2 },
+    { m: C_BRACE * P.s, xi: 0, zeta: 0.12 * P.Hc },
+    { m: P.mBallast, xi: 0, zeta: P.zBallast },
+    { m: P.mTop, xi: 0, zeta: towerCoG(P) },
+  ];
+}
+
+/** Total mass, height of the centre of gravity above the keel, pitch inertia. */
+function totals(P) {
+  let m = 0, mz = 0, I = 0;
+  for (const p of massList(P)) {
+    m += p.m;
+    mz += p.m * p.zeta;
+    I += p.m * (p.xi * p.xi + p.zeta * p.zeta);
+  }
+  return { mass: m, KG: m > 0 ? mz / m : 0, I0: I };
+}
+
+/** Submerged length of each column, measured along the column's own axis. */
+function immersion(P, z, th) {
+  const c = Math.cos(th);
+  const out = [];
+  for (const sgn of [-1, 1]) {
+    const xi = (sgn * P.s) / 2;
+    const zBase = z - xi * Math.sin(th);
+    let L = c > 1e-6 ? -zBase / c : 0;
+    if (!(L > 0)) L = 0;
+    if (L > P.Hc) L = P.Hc;
+    out.push({ xi, L });
+  }
+  return out;
+}
+
+/** Bisection on a monotone function; returns the end point if it is not bracketed. */
+function bisect(f, a, b) {
+  let fa = f(a);
+  let fb = f(b);
+  if (!isFinite(fa) || !isFinite(fb)) return a;
+  if (fa === 0) return a;
+  if (fb === 0) return b;
+  if (fa * fb > 0) return Math.abs(fa) < Math.abs(fb) ? a : b;
+  for (let i = 0; i < 60; i++) {
+    const mid = 0.5 * (a + b);
+    const fm = f(mid);
+    if (fa * fm <= 0) { b = mid; fb = fm; } else { a = mid; fa = fm; }
+  }
+  return 0.5 * (a + b);
+}
+
+/**
+ * A heavy line hanging from a fairlead to an anchor on the seabed, slack
+ * enough to sag. Two cases, and which one applies is decided by geometry
+ * rather than by a setting:
+ *
+ *   part of it still lies on the bottom - a catenary leaving the seabed
+ *   horizontally, so s^2 = h^2 + 2hH/w and the rest of the line is straight;
+ *
+ *   all of it is off the bottom - the ordinary two-point catenary, whose
+ *   length and span are related by sqrt(L0^2 - h^2) = (2H/w) sinh(wX/2H).
+ *
+ * Both reduce to one monotone equation in the horizontal tension H.
+ */
+function catenary(L0, w, X, h) {
+  if (!(h > 0) || !(w > 0)) return { H: 0, V: 0, mode: 'slack', xs: 0, xA: 0 };
+  const hLift = (w * (L0 * L0 - h * h)) / (2 * h);
+
+  const suspended = (H) => Math.sqrt(h * h + (2 * h * H) / w);
+  const spanTouchdown = (H) => {
+    const sus = suspended(H);
+    return L0 - sus + (H / w) * Math.asinh((w * sus) / H);
+  };
+
+  // So much line on the bottom that it is barely being pulled.
+  if (X <= L0 - h) return { H: 0, V: w * h, mode: 'seabed', xs: 0, xA: 0 };
+
+  if (X <= spanTouchdown(hLift)) {
+    const H = bisect((q) => spanTouchdown(q) - X, 1e-9 * hLift + 1e-9, hLift);
+    const sus = suspended(H);
+    // The lowest point is the touchdown itself, where the line leaves the bed.
+    return { H, V: w * sus, mode: 'catenary', xs: (H / w) * Math.asinh((w * sus) / H), xA: 0 };
+  }
+
+  // Fully suspended: the anchor now carries uplift as well as drag.
+  const chord = Math.sqrt(Math.max(0, L0 * L0 - h * h));
+  const H = bisect((q) => ((2 * q) / w) * Math.sinh((w * X) / (2 * q)) - chord, hLift, hLift * 1e6 + 1e6);
+  const u = w / H;
+  const mid = Math.atanh(Math.min(0.999999, h / L0)) / u;
+  return { H, V: H * Math.sinh(u * (mid + X / 2)), mode: 'lifted', xs: X, xA: mid - X / 2 };
+}
+
+/**
+ * Force on the hull from one line.
+ *
+ * Taut once the straight distance exceeds the unstretched length, and then it
+ * is the stretch that carries the load: T = EA (d - L0) / L0. That elasticity
+ * is what makes a tension-leg platform possible at all - an inextensible
+ * vertical tendon would be infinitely stiff.
+ */
+function lineForce(P, xf, zf, xa, za) {
+  const X = Math.abs(xf - xa);
+  const h = zf - za;
+  const d = Math.hypot(X, h);
+  if (!(h > 0) || d < 1e-9) return { Fx: 0, Fz: 0, H: 0, T: 0, mode: 'slack' };
+
+  if (d >= P.L0) {
+    const T = (P.EA * (d - P.L0)) / P.L0;
+    return { Fx: (T * (xa - xf)) / d, Fz: (T * (za - zf)) / d, H: (T * X) / d, T, mode: 'taut' };
+  }
+  const cat = catenary(P.L0, P.w, X, h);
+  const dir = xa > xf ? 1 : -1;
+  return { Fx: dir * cat.H, Fz: -cat.V, H: cat.H, T: Math.hypot(cat.H, cat.V), mode: cat.mode };
+}
+
+/** Both lines, with the fairlead positions they act at. */
+function lineForces(P, x, z, th) {
+  const s = Math.sin(th), c = Math.cos(th);
+  const out = [];
+  for (const sgn of [-1, 1]) {
+    const xi = (sgn * P.s) / 2;
+    const zeta = P.zFair;
+    const xf = x + xi * c + zeta * s;
+    const zf = z - xi * s + zeta * c;
+    const f = lineForce(P, xf, zf, sgn * P.rAnchor, -P.depth);
+    out.push({ xi, zeta, xf, zf, xa: sgn * P.rAnchor, za: -P.depth, ...f });
+  }
+  return out;
+}
+
+/**
+ * Net force and the moment conjugate to pitch, for the hull placed at
+ * (x, z, th). `parts` lets a caller ask for hydrostatics alone, which is how
+ * the stability triangle separates the three contributions.
+ */
+function forces(P, x, z, th, parts) {
+  const on = parts || ALL;
+  const sn = Math.sin(th), cs = Math.cos(th);
+  let Fx = 0, Fz = 0, M = 0, vol = 0, volMoment = 0;
+
+  // The generalised force conjugate to pitch, rather than a moment about a
+  // chosen point: it is the same thing, without a sign convention to get wrong.
+  const add = (fx, fz, xi, zeta) => {
+    Fx += fx;
+    Fz += fz;
+    M += fx * (-xi * sn + zeta * cs) + fz * (-xi * cs - zeta * sn);
+  };
+
+  const cols = immersion(P, z, th);
+  const A = colArea(P.D);
+  for (const col of cols) {
+    const V = A * col.L;
+    vol += V;
+    volMoment += V * (col.L / 2);
+    if (on.buoy) add(0, RHO * G * V, col.xi, col.L / 2);
+  }
+  // Each column's own waterplane circle resists heel. A strip model treats the
+  // column as a line and cannot see it; for a slender column it is a couple of
+  // percent, and leaving it out would put GM visibly out.
+  if (on.buoy && cols.every((k) => k.L > 1e-9 && k.L < P.Hc - 1e-9)) {
+    M += -RHO * G * 2 * colInertia(P.D) * sn;
+  }
+
+  const T = totals(P);
+  if (on.weight) add(0, -T.mass * G, 0, T.KG);
+  if (on.thrust) add(P.thrust, 0, 0, hubHeight(P));
+  if (on.moor) for (const L of lineForces(P, x, z, th)) add(L.Fx, L.Fz, L.xi, L.zeta);
+
+  return { Fx, Fz, M, vol, KB: vol > 0 ? volMoment / vol : 0 };
+}
+
+/** Solve a 3x3 system by elimination with partial pivoting. */
+function solve3(A, b) {
+  const m = [
+    [A[0][0], A[0][1], A[0][2], b[0]],
+    [A[1][0], A[1][1], A[1][2], b[1]],
+    [A[2][0], A[2][1], A[2][2], b[2]],
+  ];
+  for (let c = 0; c < 3; c++) {
+    let p = c;
+    for (let r = c + 1; r < 3; r++) if (Math.abs(m[r][c]) > Math.abs(m[p][c])) p = r;
+    if (Math.abs(m[p][c]) < 1e-12) return null;
+    const t = m[c]; m[c] = m[p]; m[p] = t;
+    for (let r = 0; r < 3; r++) {
+      if (r === c) continue;
+      const f = m[r][c] / m[c][c];
+      for (let k = c; k < 4; k++) m[r][k] -= f * m[c][k];
+    }
+  }
+  return [m[0][3] / m[0][0], m[1][3] / m[1][1], m[2][3] / m[2][2]];
+}
+
+const STEP = [0.02, 0.02, 2e-4]; // finite-difference steps in surge, heave, pitch
+
+/** Central-difference Jacobian of a three-in three-out function. */
+function jacobian(res, q) {
+  const J = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let c = 0; c < 3; c++) {
+    const up = q.slice(), dn = q.slice();
+    up[c] += STEP[c];
+    dn[c] -= STEP[c];
+    const a = res(up), b = res(dn);
+    for (let r = 0; r < 3; r++) J[r][c] = (a[r] - b[r]) / (2 * STEP[c]);
+  }
+  return J;
+}
+
+/**
+ * Where the hull floats: Newton on the force balance, with the step limited
+ * because the waterplane is stiff and a first guess can be a long way out.
+ */
+function equilibrium(P, guess, parts) {
+  const res = (q) => {
+    const f = forces(P, q[0], q[1], q[2], parts);
+    return [f.Fx, f.Fz, f.M];
+  };
+  let q = guess && guess.every((v) => isFinite(v)) ? guess.slice() : [0, -0.55 * P.Hc, 0];
+  let ok = false;
+  for (let it = 0; it < 80; it++) {
+    const r = res(q);
+    if (!r.every(isFinite)) break;
+    const J = jacobian(res, q);
+    let dq = solve3(J, [-r[0], -r[1], -r[2]]);
+    if (!dq) {
+      // An unmoored hull has no surge stiffness whatever, so the full system is
+      // singular and surge is simply undetermined. Solve heave and pitch and
+      // leave it where it is, rather than refusing to float the thing.
+      const det = J[1][1] * J[2][2] - J[1][2] * J[2][1];
+      if (!(Math.abs(det) > 1e-12)) break;
+      dq = [0, (-r[1] * J[2][2] + r[2] * J[1][2]) / det, (-r[2] * J[1][1] + r[1] * J[2][1]) / det];
+    }
+    if (!dq.every(isFinite)) break;
+    const lim = [8, 3, 0.08];
+    for (let i = 0; i < 3; i++) q[i] += Math.max(-lim[i], Math.min(lim[i], dq[i]));
+    if (Math.abs(dq[0]) < 1e-7 && Math.abs(dq[1]) < 1e-7 && Math.abs(dq[2]) < 1e-9) { ok = true; break; }
+  }
+  return { q, ok };
+}
+
+/** Restoring matrix: minus the gradient of the forces, so positive is stable. */
+function stiffness(P, q, parts) {
+  const res = (v) => {
+    const f = forces(P, v[0], v[1], v[2], parts);
+    return [f.Fx, f.Fz, f.M];
+  };
+  const J = jacobian(res, q);
+  return [
+    [-J[0][0], -J[0][1], -J[0][2]],
+    [-J[1][0], -J[1][1], -J[1][2]],
+    [-J[2][0], -J[2][1], -J[2][2]],
+  ];
+}
+
+/**
+ * Added mass from constant coefficients, not from a diffraction solution.
+ * Horizontal: Ca times the displaced volume, the slender-column value.
+ * Vertical: a coefficient on D^3 per column, standing in for the heave plates
+ * that dominate it on a real hull. Both are stated on the page because they
+ * set the periods and they are the crudest thing in the model.
+ */
+function addedMass(P, q) {
+  const A = colArea(P.D);
+  let A11 = 0, A33 = 0, A55 = 0;
+  for (const col of immersion(P, q[1], q[2])) {
+    A11 += RHO * P.Ca11 * A * col.L;
+    const a33 = RHO * P.Ca33 * (Math.PI / 6) * P.D * P.D * P.D;
+    A33 += a33;
+    A55 += (RHO * P.Ca11 * A * Math.pow(col.L, 3)) / 3 + a33 * col.xi * col.xi;
+  }
+  return { A11, A33, A55 };
+}
+
+/**
+ * Everything the page shows: where it floats, how stiff it is, and how that
+ * stiffness is shared between the three mechanisms.
+ *
+ * The split is the whole point of the applet:
+ *
+ *   waterplane   rho g I_wp                spreading the columns
+ *   ballast      rho g V (KB - KG)         lowering the centre of gravity
+ *   mooring      whatever the lines add    anchors, line weight and length
+ *
+ * The ballast term goes negative once the centre of gravity rises above the
+ * centre of buoyancy, which is the ordinary condition of a semi-submersible.
+ * It is reported signed rather than clamped, because that is the lesson.
+ */
+function analyse(P, guess) {
+  const eq = equilibrium(P, guess);
+  const q = eq.q;
+  const f = forces(P, q[0], q[1], q[2]);
+  const T = totals(P);
+  const A = colArea(P.D);
+  const cols = immersion(P, q[1], q[2]);
+
+  const draft = -q[1];
+  const vol = f.vol;
+  const disp = RHO * vol;
+  const pierces = cols.every((k) => k.L > 1e-9 && k.L < P.Hc - 1e-9);
+  const Iwp = pierces ? 2 * (A * Math.pow(P.s / 2, 2) + colInertia(P.D)) : 0;
+  const BM = vol > 0 ? Iwp / vol : 0;
+  const GM = f.KB + BM - T.KG;
+
+  const Cwp = RHO * G * Iwp;
+  const Cbal = RHO * G * vol * (f.KB - T.KG);
+  const Cmoor = stiffness(P, q, { moor: true })[2][2];
+  const C = stiffness(P, q);
+  const Chydro = stiffness(P, q, { buoy: true, weight: true });
+
+  const am = addedMass(P, q);
+  const period = (m, k) => (k > 0 ? 2 * Math.PI * Math.sqrt(m / k) : NaN);
+
+  return {
+    ok: eq.ok, q, draft, vol, disp, KB: f.KB, KG: T.KG, BM, GM, Iwp, pierces,
+    heel: (q[2] * 180) / Math.PI,
+    Cwp, Cbal, Cmoor, C55: Cwp + Cbal + Cmoor, C, Chydro,
+    mass: T.mass, I0: T.I0, added: am,
+    Tsurge: period(T.mass + am.A11, C[0][0]),
+    Theave: period(T.mass + am.A33, C[1][1]),
+    Tpitch: period(T.I0 + am.A55, Cwp + Cbal + Cmoor),
+    lines: lineForces(P, q[0], q[1], q[2]),
+    shares: shares(Cwp, Cbal, Cmoor),
+  };
+}
+
+/** Fractions for the triangle. Only the terms that actually help are plotted. */
+function shares(Cwp, Cbal, Cmoor) {
+  const p = [Math.max(0, Cwp), Math.max(0, Cbal), Math.max(0, Cmoor)];
+  const t = p[0] + p[1] + p[2];
+  return t > 0 ? [p[0] / t, p[1] / t, p[2] / t] : [1 / 3, 1 / 3, 1 / 3];
+}
+
+/**
+ * The shape of one line, for drawing: world points from fairlead to anchor.
+ *
+ * Measured from the lowest point of the curve, a catenary is
+ * z = zlow + (H/w)(cosh(w*xi/H) - 1). For a line still touching down, the
+ * lowest point is the touchdown itself and the remainder lies flat on the bed;
+ * for a fully lifted line the lowest point sits somewhere between the ends.
+ */
+function linePoints(P, L, n) {
+  const X = Math.abs(L.xf - L.xa);
+  const h = L.zf - L.za;
+  const dir = L.xa > L.xf ? 1 : -1; // from fairlead toward anchor
+  if (L.mode === 'taut' || !(h > 0) || !(P.w > 0)) return [[L.xf, L.zf], [L.xa, L.za]];
+
+  const cat = catenary(P.L0, P.w, X, h);
+  if (!(cat.H > 0)) return [[L.xf, L.zf], [L.xf, L.za], [L.xa, L.za]];
+
+  const u = P.w / cat.H;
+  const pts = [];
+  if (cat.mode === 'lifted') {
+    // xi runs from the anchor end to the fairlead end, past the lowest point.
+    const zLow = L.za - (cat.H / P.w) * (Math.cosh(u * cat.xA) - 1);
+    for (let i = 0; i <= n; i++) {
+      const xi = cat.xA + (X * i) / n;
+      pts.push([L.xa - dir * (xi - cat.xA), zLow + (cat.H / P.w) * (Math.cosh(u * xi) - 1)]);
+    }
+    return pts.reverse();
+  }
+  // Touchdown case: flat along the bed, then the curve up to the fairlead.
+  const xTd = L.xa - dir * Math.max(0, X - cat.xs);
+  pts.push([L.xa, L.za]);
+  for (let i = 0; i <= n; i++) {
+    const xi = (cat.xs * i) / n;
+    pts.push([xTd - dir * xi, L.za + (cat.H / P.w) * (Math.cosh(u * xi) - 1)]);
+  }
+  return pts.reverse();
+}
+
+/* --------------------------------------------------------------- state */
+
+const P = {
+  D: 22, s: 52, Hc: 40,
+  mBallast: 12.0e6, zBallast: 6,
+  mTop: 2.25e6, thrust: 2.4e6,
+  zFair: 5,
+  rAnchor: 800, depth: 200,
+  L0: 850, w: 1800, EA: 1.5e9,
+  Ca11: 1.0, Ca33: 3.0,
+};
+
+const TRACE = 340;
+const ROTOR = 120;          // rotor radius drawn on the tower, m
+const RHO_BALLAST = 2500;   // dense fill, kg/m^3, used only for drawing the slab
+const state = {
+  zeta: 0.05,
+  res: null,          // the last analysis that worked
+  moving: false,
+  x: [0, 0, 0],       // deviation from equilibrium: surge, heave, pitch
+  v: [0, 0, 0],
+};
+const tracePitch = [];
+const traceSurge = [];
+
+/**
+ * Re-solve after a slider moves.
+ *
+ * The previous equilibrium seeds the next one, so dragging a slider walks the
+ * solution rather than restarting it, and a configuration that fails to solve
+ * leaves the last good one on screen. Nothing here is allowed to throw: this is
+ * meant to survive being dragged around in front of a class.
+ */
+function recompute() {
+  let next = null;
+  try {
+    next = analyse(P, state.res ? state.res.q : null);
+  } catch (err) {
+    next = null;
+  }
+  if (next && next.ok && isFinite(next.C55) && next.vol > 0) state.res = next;
+  renderNums();
+}
+
+/** Linear free decay about the equilibrium, integrated with RK4. */
+function step(h) {
+  const m = state.res;
+  if (!m || !state.moving) return;
+  const Mm = [m.mass + m.added.A11, m.mass + m.added.A33, m.I0 + m.added.A55];
+  const B = [0, 1, 2].map((i) => 2 * state.zeta * Math.sqrt(Math.max(0, Mm[i] * Math.max(0, m.C[i][i]))));
+
+  const accel = (x, v) => {
+    const a = [0, 0, 0];
+    for (let i = 0; i < 3; i++) {
+      let f = -B[i] * v[i];
+      for (let j = 0; j < 3; j++) f -= m.C[i][j] * x[j];
+      a[i] = f / Mm[i];
+    }
+    return a;
+  };
+  const add = (p, q, k) => [p[0] + k * q[0], p[1] + k * q[1], p[2] + k * q[2]];
+
+  const a1 = accel(state.x, state.v);
+  const x2 = add(state.x, state.v, h / 2), v2 = add(state.v, a1, h / 2);
+  const a2 = accel(x2, v2);
+  const x3 = add(state.x, v2, h / 2), v3 = add(state.v, a2, h / 2);
+  const a3 = accel(x3, v3);
+  const x4 = add(state.x, v3, h), v4 = add(state.v, a3, h);
+  const a4 = accel(x4, v4);
+
+  for (let i = 0; i < 3; i++) {
+    state.x[i] += (h / 6) * (state.v[i] + 2 * v2[i] + 2 * v3[i] + v4[i]);
+    state.v[i] += (h / 6) * (a1[i] + 2 * a2[i] + 2 * a3[i] + a4[i]);
+  }
+  if (!state.x.every(isFinite)) stopMotion();
+}
+
+function pushTraces() {
+  tracePitch.push((state.x[2] * 180) / Math.PI);
+  traceSurge.push(state.x[0]);
+  if (tracePitch.length > TRACE) { tracePitch.shift(); traceSurge.shift(); }
+}
+
+function pluck(which) {
+  if (!state.res) return;
+  state.x = [0, 0, 0];
+  state.v = [0, 0, 0];
+  if (which === 'pitch') state.x[2] = 0.09;
+  else state.x[0] = 12;
+  state.moving = true;
+  syncMotion();
+}
+
+function stopMotion() {
+  state.moving = false;
+  state.x = [0, 0, 0];
+  state.v = [0, 0, 0];
+  tracePitch.length = 0;
+  traceSurge.length = 0;
+  syncMotion();
+}
+
+/* ------------------------------------------------------------ rendering */
+
+const $ = (id) => document.getElementById(id);
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+const hullCv = $('hull');
+const moorCv = $('moor');
+const triCv = $('tri');
+const decayCv = $('decay');
+
+function fit(cv) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth;
+  const h = cv.getAttribute('height') / 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
+  }
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  return { g, w, h };
+}
+
+/**
+ * A view that maps world metres to the canvas at one scale for both axes.
+ *
+ * Distorting the vertical would make a catenary the wrong shape, and the shape
+ * is half of what the mooring picture is for.
+ */
+function view(w, h, x0, x1, z0, z1, pad) {
+  const k = Math.min((w - 2 * pad) / Math.max(1e-6, x1 - x0), (h - 2 * pad) / Math.max(1e-6, z1 - z0));
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
+  return {
+    k,
+    X: (x) => w / 2 + (x - cx) * k,
+    Z: (z) => h / 2 - (z - cz) * k,
+  };
+}
+
+/** Where a body point sits in the world, including the motion of the moment. */
+function place(m, xi, zeta) {
+  const th = m.q[2] + state.x[2];
+  const sn = Math.sin(th), cs = Math.cos(th);
+  return [
+    m.q[0] + state.x[0] + xi * cs + zeta * sn,
+    m.q[1] + state.x[1] - xi * sn + zeta * cs,
+  ];
+}
+
+function poly(g, pts, V) {
+  g.beginPath();
+  pts.forEach(([x, z], i) => (i ? g.lineTo(V.X(x), V.Z(z)) : g.moveTo(V.X(x), V.Z(z))));
+}
+
+/** Sea above the waterline, drawn behind everything. */
+function drawSea(g, w, h, V, bedZ) {
+  const y = V.Z(0);
+  g.fillStyle = css('--sea');
+  g.fillRect(0, y, w, h - y);
+  g.strokeStyle = css('--rule');
+  g.lineWidth = 1.2;
+  g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
+  if (bedZ !== null) {
+    const b = V.Z(bedZ);
+    g.strokeStyle = css('--muted');
+    g.beginPath(); g.moveTo(0, b); g.lineTo(w, b); g.stroke();
+  }
+}
+
+function drawHull() {
+  const { g, w, h } = fit(hullCv);
+  const m = state.res;
+  if (!m) return;
+  const top = hubHeight(P);
+  const half = P.s / 2 + P.D / 2;
+  const V = view(w, h, -half - 8, half + 8, -m.draft - 14, top + ROTOR + 6, 10);
+  drawSea(g, w, h, V, null);
+
+  const th = m.q[2] + state.x[2];
+  const sn = Math.sin(th), cs = Math.cos(th);
+  // A body-fixed rectangle, drawn as its four rotated corners.
+  const box = (xi0, xi1, z0, z1, fill, alpha) => {
+    const pts = [[xi0, z0], [xi1, z0], [xi1, z1], [xi0, z1]].map(([a, b]) => place(m, a, b));
+    poly(g, pts, V);
+    g.closePath();
+    g.globalAlpha = alpha === undefined ? 1 : alpha;
+    g.fillStyle = fill;
+    g.fill();
+    g.globalAlpha = 1;
+  };
+
+  for (const sgn of [-1, 1]) {
+    const c = (sgn * P.s) / 2;
+    box(c - P.D / 2, c + P.D / 2, 0, P.Hc, css('--hull'), 0.85);
+  }
+  // Pontoon between the columns, and the ballast sitting in it.
+  box(-P.s / 2, P.s / 2, 0, 0.12 * P.Hc, css('--hull'), 0.85);
+  if (P.mBallast > 0) {
+    // Drawn at the volume it would really occupy, as a slab of dense fill
+    // across the footprint - so a heavier ballast is visibly a deeper layer.
+    const t = Math.min(P.Hc * 0.8, P.mBallast / (RHO_BALLAST * Math.max(1, P.s) * Math.max(1, P.D)));
+    box(-P.s / 2, P.s / 2, P.zBallast - t / 2, P.zBallast + t / 2, css('--bal'), 0.95);
+  }
+  // Tower, tapering, then the rotor as a simple disc edge-on.
+  const towerBase = place(m, 0, P.Hc);
+  const hub = place(m, 0, top);
+  g.strokeStyle = css('--hull');
+  g.lineWidth = Math.max(1.5, 3.2 * V.k);
+  g.beginPath(); g.moveTo(V.X(towerBase[0]), V.Z(towerBase[1])); g.lineTo(V.X(hub[0]), V.Z(hub[1])); g.stroke();
+  const rTip = place(m, 0, top + ROTOR);
+  const rBot = place(m, 0, top - ROTOR);
+  g.lineWidth = Math.max(1, 1.6);
+  g.beginPath(); g.moveTo(V.X(rTip[0]), V.Z(rTip[1])); g.lineTo(V.X(rBot[0]), V.Z(rBot[1])); g.stroke();
+
+  // Centres of gravity and buoyancy: the whole ballast argument in two dots.
+  const dot = (pt, colour, label) => {
+    g.fillStyle = colour;
+    g.beginPath(); g.arc(V.X(pt[0]), V.Z(pt[1]), 4, 0, 2 * Math.PI); g.fill();
+    g.fillStyle = css('--muted');
+    g.font = '11px "IBM Plex Mono", ui-monospace, monospace';
+    g.fillText(label, V.X(pt[0]) + 7, V.Z(pt[1]) + 4);
+  };
+  dot(place(m, 0, m.KG), css('--bal'), 'G');
+  dot(place(m, 0, m.KB), css('--wp'), 'B');
+
+  // Thrust, as an arrow at the hub.
+  if (P.thrust > 0) {
+    const len = 14 + 34 * (P.thrust / 5e6);
+    const x = V.X(hub[0]) - len - 10;
+    const y = V.Z(hub[1]);
+    g.strokeStyle = css('--hot');
+    g.lineWidth = 2;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + len, y); g.stroke();
+    g.beginPath(); g.moveTo(x + len, y); g.lineTo(x + len - 6, y - 4); g.lineTo(x + len - 6, y + 4); g.closePath();
+    g.fillStyle = css('--hot'); g.fill();
+  }
+
+  // The first stretch of each line, so the fairleads are not left dangling.
+  g.strokeStyle = css('--moor');
+  g.lineWidth = 1.4;
+  for (const L of m.lines) {
+    const f = place(m, L.xi, L.zeta);
+    const dx = L.xa - f[0], dz = L.za - f[1];
+    const n = Math.hypot(dx, dz) || 1;
+    g.beginPath();
+    g.moveTo(V.X(f[0]), V.Z(f[1]));
+    g.lineTo(V.X(f[0] + (dx / n) * 40), V.Z(f[1] + (dz / n) * 40));
+    g.stroke();
+  }
+}
+
+function drawMoor() {
+  const { g, w, h } = fit(moorCv);
+  const m = state.res;
+  if (!m) return;
+  const span = Math.max(P.rAnchor + 40, P.s);
+  const V = view(w, h, -span, span, -P.depth - 12, Math.max(30, P.Hc - m.draft + 10), 8);
+  drawSea(g, w, h, V, -P.depth);
+
+  // The hull as a plain block: this picture is about the lines.
+  g.fillStyle = css('--hull');
+  g.globalAlpha = 0.85;
+  const a = place(m, -P.s / 2 - P.D / 2, 0);
+  const b = place(m, P.s / 2 + P.D / 2, P.Hc);
+  g.fillRect(V.X(a[0]), V.Z(b[1]), Math.max(2, (b[0] - a[0]) * V.k), Math.max(2, (b[1] - a[1]) * V.k));
+  g.globalAlpha = 1;
+
+  g.strokeStyle = css('--moor');
+  g.lineWidth = 1.6;
+  for (const L of m.lines) {
+    const pts = linePoints(P, L, 90);
+    poly(g, pts, V);
+    g.stroke();
+    g.fillStyle = css('--moor');
+    g.beginPath(); g.arc(V.X(L.xa), V.Z(L.za), 3, 0, 2 * Math.PI); g.fill();
+  }
+
+  g.fillStyle = css('--muted');
+  g.font = '11px "IBM Plex Mono", ui-monospace, monospace';
+  const mode = m.lines[0] ? m.lines[0].mode : '';
+  const words = { seabed: 'slack on the bed', catenary: 'catenary', lifted: 'lifted clear', taut: 'taut tendons', slack: 'slack' };
+  g.fillText(words[mode] || mode, 8, h - 8);
+  g.fillText(`${(m.lines[0] ? m.lines[0].T / 1e6 : 0).toFixed(1)} MN`, w - 58, h - 8);
+}
+
+/**
+ * The stability triangle: waterplane at the top, ballast bottom left, mooring
+ * bottom right. A design's place in it is its share of the pitch restoring.
+ */
+function drawTri() {
+  const { g, w, h } = fit(triCv);
+  const m = state.res;
+  if (!m) return;
+  const pad = 30;
+  const side = Math.min(w - 2 * pad, (h - 2 * pad) / 0.866);
+  const cx = w / 2;
+  const top = (h - side * 0.866) / 2;
+  const A = [cx, top];                                  // waterplane
+  const B = [cx - side / 2, top + side * 0.866];        // ballast
+  const C = [cx + side / 2, top + side * 0.866];        // mooring
+
+  g.strokeStyle = css('--rule');
+  g.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    const t = i / 4;
+    const seg = (p, q, r, s2) => {
+      g.beginPath();
+      g.moveTo(p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t);
+      g.lineTo(r[0] + (s2[0] - r[0]) * t, r[1] + (s2[1] - r[1]) * t);
+      g.stroke();
+    };
+    seg(A, B, A, C);
+    seg(B, A, B, C);
+    seg(C, A, C, B);
+  }
+  g.strokeStyle = css('--muted');
+  g.lineWidth = 1.4;
+  g.beginPath();
+  g.moveTo(A[0], A[1]); g.lineTo(B[0], B[1]); g.lineTo(C[0], C[1]); g.closePath();
+  g.stroke();
+
+  g.font = '11px "IBM Plex Mono", ui-monospace, monospace';
+  g.textAlign = 'center';
+  g.fillStyle = css('--wp'); g.fillText('waterplane', A[0], A[1] - 9);
+  g.fillStyle = css('--bal'); g.fillText('ballast', B[0] + 4, B[1] + 17);
+  g.fillStyle = css('--moor'); g.fillText('mooring', C[0] - 4, C[1] + 17);
+  g.fillStyle = css('--muted');
+  g.fillText('semi-sub', A[0], A[1] - 21);
+  g.fillText('spar', B[0] + 4, B[1] + 29);
+  g.fillText('TLP', C[0] - 4, C[1] + 29);
+  g.textAlign = 'left';
+
+  const [a, b, c] = m.shares;
+  const px = a * A[0] + b * B[0] + c * C[0];
+  const py = a * A[1] + b * B[1] + c * C[1];
+  g.fillStyle = css('--ink');
+  g.beginPath(); g.arc(px, py, 6, 0, 2 * Math.PI); g.fill();
+  g.strokeStyle = css('--panel');
+  g.lineWidth = 2;
+  g.beginPath(); g.arc(px, py, 6, 0, 2 * Math.PI); g.stroke();
+}
+
+/** Autoscaled traces of the free decay, sharing one zero line. */
+function drawDecay() {
+  const { g, w, h } = fit(decayCv);
+  const mid = h / 2;
+  g.strokeStyle = css('--rule');
+  g.lineWidth = 1;
+  g.beginPath(); g.moveTo(0, mid); g.lineTo(w, mid); g.stroke();
+
+  if (!tracePitch.length) {
+    g.fillStyle = css('--muted');
+    g.font = '11px "IBM Plex Mono", ui-monospace, monospace';
+    g.fillText('pluck it and watch how long it takes to settle', 10, mid - 8);
+    return;
+  }
+  for (const [trace, colour] of [[traceSurge, css('--moor')], [tracePitch, css('--wp')]]) {
+    let peak = 1e-9;
+    for (const v of trace) peak = Math.max(peak, Math.abs(v));
+    const amp = (h / 2 - 8) / peak;
+    g.strokeStyle = colour;
+    g.lineWidth = 1.6;
+    g.beginPath();
+    trace.forEach((v, i) => {
+      const x = (i / (TRACE - 1)) * w;
+      const y = mid - v * amp;
+      if (i) g.lineTo(x, y); else g.moveTo(x, y);
+    });
+    g.stroke();
+  }
+  g.fillStyle = css('--muted');
+  g.font = '11px "IBM Plex Mono", ui-monospace, monospace';
+  g.fillText('pitch', 10, 14);
+  g.fillText('surge', 52, 14);
+}
+
+const fmt = (v, d, unit) => (isFinite(v) ? v.toFixed(d) + unit : '—');
+
+function renderNums() {
+  const m = state.res;
+  const host = $('nums');
+  if (!m) return;
+  const cells = [
+    ['draft', fmt(m.draft, 1, ' m'), false],
+    ['heel', fmt(m.heel, 2, '°'), Math.abs(m.heel) > 5],
+    ['GM', fmt(m.GM, 1, ' m'), m.GM < 0],
+    ['displacement', fmt(m.disp / 1e6, 1, ' kt'), false],
+    ['surge period', fmt(m.Tsurge, 0, ' s'), false],
+    ['heave period', fmt(m.Theave, 1, ' s'), m.Theave > 5 && m.Theave < 20],
+    ['pitch period', fmt(m.Tpitch, 1, ' s'), m.Tpitch > 5 && m.Tpitch < 20],
+    ['ballast term', fmt(m.Cbal / 1e9, 2, ' GN·m'), m.Cbal < 0],
+  ];
+  host.replaceChildren(
+    ...cells.map(([label, value, warn]) => {
+      const el = document.createElement('div');
+      el.className = 'num' + (warn ? ' warn' : '');
+      const b = document.createElement('b');
+      b.textContent = value;
+      const sp = document.createElement('span');
+      sp.textContent = label;
+      el.append(b, sp);
+      return el;
+    }),
+  );
+}
+
+/* ------------------------------------------------------------- controls */
+
+/** One slider: integer units in the DOM, physical units in the handler. */
+function slider(id, apply, show) {
+  const el = $(id);
+  const out = $(id + 'Out');
+  const sync = () => {
+    apply(Number(el.value));
+    out.textContent = show(Number(el.value));
+  };
+  el.addEventListener('input', () => { sync(); recompute(); });
+  return { el, sync };
+}
+
+const S = {
+  hdep: slider('hdep', (v) => { P.Hc = v; }, (v) => v + ' m'),
+  diam: slider('diam', (v) => { P.D = v; }, (v) => v + ' m'),
+  spac: slider('spac', (v) => { P.s = v; }, (v) => v + ' m'),
+  mbal: slider('mbal', (v) => { P.mBallast = v * 1e5; }, (v) => (v / 10).toFixed(1) + ' kt'),
+  zbal: slider('zbal', (v) => { P.zBallast = (v / 100) * P.Hc; }, (v) => ((v / 100) * P.Hc).toFixed(1) + ' m'),
+  anch: slider('anch', (v) => { P.rAnchor = v; }, (v) => v + ' m'),
+  llen: slider('llen', (v) => { P.L0 = v; }, (v) => v + ' m'),
+  lwt: slider('lwt', (v) => { P.w = v * 10; }, (v) => (v * 10 / 1000).toFixed(2) + ' kN/m'),
+  thr: slider('thr', (v) => { P.thrust = v * 1e4; }, (v) => (v / 100).toFixed(2) + ' MN'),
+  damp: slider('damp', (v) => { state.zeta = v / 1000; }, (v) => (v / 10).toFixed(1) + ' %'),
+};
+
+// Ballast height is a fraction of the hull depth, so deepening the hull must
+// move the ballast with it rather than leaving it stranded mid-column.
+S.hdep.el.addEventListener('input', () => S.zbal.sync());
+
+/** Push every slider's value into P at once, for presets and for startup. */
+function syncAll() {
+  for (const k of Object.keys(S)) S[k].sync();
+}
+
+function preset(values) {
+  for (const [k, v] of Object.entries(values)) S[k].el.value = String(v);
+  syncAll();
+  stopMotion();
+  state.res = null;
+  recompute();
+}
+
+$('pSpar').addEventListener('click', () =>
+  preset({ hdep: 120, diam: 14, spac: 16, mbal: 240, zbal: 3, anch: 700, llen: 780, lwt: 180 }));
+$('pSemi').addEventListener('click', () =>
+  preset({ hdep: 40, diam: 22, spac: 52, mbal: 120, zbal: 15, anch: 800, llen: 850, lwt: 180 }));
+$('pTlp').addEventListener('click', () =>
+  preset({ hdep: 35, diam: 18, spac: 40, mbal: 20, zbal: 15, anch: 10, llen: 176, lwt: 180 }));
+
+$('pluckP').addEventListener('click', () => pluck('pitch'));
+$('pluckS').addEventListener('click', () => pluck('surge'));
+$('stop').addEventListener('click', stopMotion);
+
+function syncMotion() {
+  $('pluckP').classList.toggle('on', state.moving);
+  $('pluckS').classList.toggle('on', false);
+}
+
+/* ----------------------------------------------------------------- loop */
+
+let last = performance.now();
+let acc = 0;
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  acc += dt;
+  const H = 1 / 120;
+  let guard = 0;
+  // Real periods run to tens of seconds, so the decay is shown sped up;
+  // otherwise a pitch decay would take a lecture to watch.
+  while (acc >= H && guard++ < 400) { step(H * 6); acc -= H; }
+
+  if (state.moving) pushTraces();
+  drawHull();
+  drawMoor();
+  drawTri();
+  drawDecay();
+  requestAnimationFrame(frame);
+}
+
+// Open in a working state: solved, labelled, and already ringing down.
+syncAll();
+recompute();
+syncMotion();
+$('foot').textContent =
+  'Two circular columns, each treated as a strip; mooring lines solved as catenaries with seabed contact, or as elastic tendons once taut. '
+  + 'Added mass from constant coefficients (Ca = ' + P.Ca11.toFixed(1) + ' horizontal, ' + P.Ca33.toFixed(1) + ' vertical), which is the crudest thing here and sets the periods. '
+  + 'The pitch stiffness found by differentiating the forces agrees with rho g V GM to better than 0.01%. Decay shown at six times real speed.';
+pluck('pitch');
+requestAnimationFrame(frame);
+
+</script>

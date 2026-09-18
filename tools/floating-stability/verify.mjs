@@ -1,0 +1,222 @@
+/**
+ * Check the floating-platform model against theory, not against itself.
+ *
+ * The maths is extracted from the applet rather than duplicated here, so this
+ * tests the code that actually ships. Run with:
+ *
+ *   npm test
+ */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const html = readFileSync(join(HERE, 'index.html'), 'utf8');
+
+// COUPLING: the slice is located by these two literal markers in index.html.
+// Edit either of them there and this harness stops testing the model, so the
+// bounds are checked rather than assumed.
+const START = 'const RHO = 1025;';
+const END = '/* --------------------------------------------------------------- state */';
+const start = html.indexOf(START);
+const end = html.indexOf(END);
+if (start < 0 || end < 0 || end <= start) {
+  console.error(
+    `Could not find the model in index.html.\n` +
+      `  start marker ${start < 0 ? 'MISSING' : 'ok'}: ${START}\n` +
+      `  end marker   ${end < 0 ? 'MISSING' : 'ok'}: ${END}\n` +
+      `The markers moved or changed. Fix them here and in index.html together.`,
+  );
+  process.exit(1);
+}
+const maths = html.slice(start, end);
+
+const F = {};
+for (const name of [
+  'colArea', 'colInertia', 'totals', 'immersion', 'catenary', 'lineForce',
+  'forces', 'equilibrium', 'stiffness', 'analyse', 'shares', 'linePoints', 'bisect',
+]) {
+  F[name] = eval(maths + '; ' + name);
+}
+const RHO = eval(maths + '; RHO');
+const G = eval(maths + '; G');
+
+let failures = 0;
+const pass = (ok, msg) => {
+  if (!ok) failures++;
+  console.log((ok ? '  PASS  ' : '  FAIL  ') + msg);
+};
+const rel = (a, b) => Math.abs(a - b) / Math.max(1e-30, Math.abs(b));
+
+/** A plausible two-column semi-submersible, and the base case for everything. */
+const base = () => ({
+  D: 22, s: 52, Hc: 40,
+  mBallast: 12.0e6, zBallast: 6,
+  mTop: 2.25e6, thrust: 0,
+  zFair: 5,
+  rAnchor: 800, depth: 200,
+  L0: 850, w: 1800, EA: 1.5e9,
+  Ca11: 1.0, Ca33: 3.0,
+});
+
+const HYDRO = { buoy: true, weight: true };
+
+/* ------------------------------------------------------- 1. Archimedes */
+console.log('Floats where Archimedes says it does:');
+{
+  const P = base();
+  const { q, ok } = F.equilibrium(P, null, HYDRO);
+  const f = F.forces(P, q[0], q[1], q[2], HYDRO);
+  const T = F.totals(P);
+  console.log(`  draft ${(-q[1]).toFixed(3)} m, displacement ${(RHO * f.vol / 1e6).toFixed(3)} kt, mass ${(T.mass / 1e6).toFixed(3)} kt`);
+  pass(ok, 'equilibrium converged');
+  pass(rel(RHO * f.vol, T.mass) < 1e-9, 'displaced mass equals total mass to 1e-9');
+  pass(Math.abs(q[2]) < 1e-9, 'floats upright when nothing pushes it over');
+}
+
+/* ------------------------------------ 2. the stiffness matches rho g V GM */
+// The headline check. C55 comes from differentiating the force function; GM
+// comes from the textbook KB + BM - KG. Nothing in the model computes one from
+// the other, so agreement means the hydrostatics is right.
+console.log('\nPitch stiffness against rho g V GM:');
+for (const [label, tweak] of [
+  ['base semi', {}],
+  ['deep ballast', { zBallast: 1.5, mBallast: 14e6 }],
+  ['high centre of gravity', { zBallast: 30, mBallast: 9e6 }],
+  ['narrow spacing', { s: 20 }],
+  ['wide spacing', { s: 110 }],
+  ['fat columns', { D: 30 }],
+]) {
+  const P = Object.assign(base(), tweak);
+  const { q } = F.equilibrium(P, null, HYDRO);
+  const f = F.forces(P, q[0], q[1], q[2], HYDRO);
+  const T = F.totals(P);
+  const A = F.colArea(P.D);
+  const Iwp = 2 * (A * (P.s / 2) ** 2 + F.colInertia(P.D));
+  const GM = f.KB + Iwp / f.vol - T.KG;
+  const theory = RHO * G * f.vol * GM;
+  const found = F.stiffness(P, q, HYDRO)[2][2];
+  console.log(`  ${label.padEnd(24)} GM ${GM.toFixed(3).padStart(8)} m   C55 ${(found / 1e9).toFixed(4)} GN.m/rad   theory ${(theory / 1e9).toFixed(4)}   err ${(rel(found, theory) * 100).toFixed(4)}%`);
+  pass(rel(found, theory) < 1e-4, `${label}: C55 within 0.01% of rho g V GM`);
+}
+
+/* ------------------------------------------- 3. closed form for a column */
+console.log('\nA single column against the closed form:');
+{
+  // With the columns pushed together the pair behaves as one circle, whose
+  // BM is exactly D^2 / 16T.
+  const P = Object.assign(base(), { s: 1e-4 });
+  const { q } = F.equilibrium(P, null, HYDRO);
+  const f = F.forces(P, q[0], q[1], q[2], HYDRO);
+  const T = -q[1];
+  const A = F.colArea(P.D);
+  const Iwp = 2 * (A * (P.s / 2) ** 2 + F.colInertia(P.D));
+  const BM = Iwp / f.vol;
+  // Two touching columns of diameter D have twice the area and twice the
+  // inertia of one, so BM is the single-column value.
+  const exact = (P.D * P.D) / (16 * T);
+  console.log(`  draft ${T.toFixed(3)} m   KB ${f.KB.toFixed(4)} m (exact ${(T / 2).toFixed(4)})   BM ${BM.toFixed(5)} m (exact ${exact.toFixed(5)})`);
+  pass(rel(f.KB, T / 2) < 1e-9, 'KB is half the draft for a vertical column');
+  pass(rel(BM, exact) < 1e-6, 'BM is D^2 / 16T');
+}
+
+/* --------------------------------------------------- 4. the mooring line */
+// The catenary is checked by measuring the curve it returns: integrate the arc
+// length of the drawn shape and compare with the line length that went in.
+console.log('\nMooring line, arc length of the returned shape:');
+function arcLength(pts) {
+  let s = 0;
+  for (let i = 1; i < pts.length; i++) s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  return s;
+}
+for (const [label, P, xf, zf] of [
+  ['touching down', Object.assign(base(), { L0: 900, w: 1800 }), 0, -5],
+  ['nearly lifted', Object.assign(base(), { L0: 830, w: 1800 }), 0, -5],
+  ['fully lifted', Object.assign(base(), { L0: 824, w: 1800 }), 0, -5],
+  ['light line', Object.assign(base(), { L0: 900, w: 60 }), 0, -5],
+]) {
+  const xa = P.rAnchor, za = -P.depth;
+  const f = F.lineForce(P, xf, zf, xa, za);
+  const pts = F.linePoints(P, { xf, zf, xa, za, mode: f.mode }, 4000);
+  const len = arcLength(pts);
+  const chord = Math.hypot(xa - xf, za - zf);
+  console.log(`  ${label.padEnd(16)} mode ${f.mode.padEnd(10)} H ${(f.H / 1e6).toFixed(3)} MN   V ${(-f.Fz / 1e6).toFixed(3)} MN   arc ${len.toFixed(2)} m (line ${P.L0}, chord ${chord.toFixed(1)})`);
+  pass(rel(len, P.L0) < 2e-3, `${label}: the drawn curve is the length of the line`);
+  pass(f.Fx > 0 && f.Fz <= 0, `${label}: pulls toward the anchor and downward`);
+}
+{
+  // A tendon straight below the hull: pure stretch, no catenary anywhere.
+  const P = Object.assign(base(), { rAnchor: 0, L0: 180, EA: 1.5e9 });
+  const f = F.lineForce(P, 0, -5, 0, -200);
+  const exact = (P.EA * (195 - P.L0)) / P.L0;
+  console.log(`  ${'vertical tendon'.padEnd(16)} mode ${f.mode.padEnd(10)} T ${(f.T / 1e6).toFixed(3)} MN   exact EA(d-L0)/L0 ${(exact / 1e6).toFixed(3)} MN`);
+  pass(rel(f.T, exact) < 1e-9, 'a taut tendon carries EA (d - L0) / L0');
+  pass(Math.abs(f.Fx) < 1e-9, 'a vertical tendon pulls straight down');
+}
+
+/* ------------------------------------------- 5. the three terms behave */
+console.log('\nEach mechanism responds to its own slider:');
+{
+  const low = F.analyse(Object.assign(base(), { zBallast: 2 }));
+  const high = F.analyse(Object.assign(base(), { zBallast: 25 }));
+  console.log(`  ballast at 2 m: GM ${low.GM.toFixed(2)} m, Cbal ${(low.Cbal / 1e9).toFixed(3)} GN.m   at 25 m: GM ${high.GM.toFixed(2)} m, Cbal ${(high.Cbal / 1e9).toFixed(3)} GN.m`);
+  pass(low.GM > high.GM, 'lowering the ballast raises GM');
+  pass(low.Cbal > high.Cbal, 'lowering the ballast raises the ballast term');
+
+  const A40 = 2 * F.colArea(base().D) * 20 * 20;
+  const own = 2 * F.colInertia(base().D);
+  const s1 = F.analyse(Object.assign(base(), { s: 40 }));
+  const s2 = F.analyse(Object.assign(base(), { s: 80 }));
+  // The parallel-axis term dominates, so the waterplane term grows as s^2.
+  // Just under four, and it should be: each column's own waterplane circle
+  // contributes the same inertia wherever the column is put, so it dilutes the
+  // s^2 growth of the parallel-axis term.
+  const ratio = s2.Cwp / s1.Cwp;
+  const exact = (4 * A40 + own) / (A40 + own);
+  console.log(`  spacing 40 -> 80 m: Cwp ratio ${ratio.toFixed(4)} (parallel axis alone would give 4; with each column's own circle, ${exact.toFixed(4)})`);
+  pass(rel(ratio, exact) < 1e-6, 'the waterplane term grows as the spacing squared, diluted by each column\'s own circle');
+
+  const slack = F.analyse(Object.assign(base(), { rAnchor: 800, L0: 900 }));
+  const tlp = F.analyse(Object.assign(base(), { rAnchor: 10, L0: 180, mBallast: 4e6 }));
+  console.log(`  catenary: mooring share ${(slack.shares[2] * 100).toFixed(1)}%   tendons: ${(tlp.shares[2] * 100).toFixed(1)}%`);
+  pass(tlp.shares[2] > slack.shares[2], 'pulling the anchors in shifts the work to the mooring');
+  pass(tlp.shares[2] > 0.5, 'a tension-leg platform is mooring-stabilised');
+}
+
+/* -------------------------------------------------- 6. the triangle itself */
+console.log('\nThe triangle:');
+{
+  for (const [label, tweak] of [
+    ['semi', {}],
+    ['spar', { Hc: 120, D: 14, s: 16, zBallast: 4, mBallast: 24e6 }],
+    ['tlp', { Hc: 35, D: 18, s: 40, mBallast: 2e6, rAnchor: 10, L0: 176 }],
+  ]) {
+    const a = F.analyse(Object.assign(base(), tweak));
+    const sum = a.shares[0] + a.shares[1] + a.shares[2];
+    console.log(`  ${label.padEnd(5)} waterplane ${(a.shares[0] * 100).toFixed(1)}%  ballast ${(a.shares[1] * 100).toFixed(1)}%  mooring ${(a.shares[2] * 100).toFixed(1)}%   GM ${a.GM.toFixed(2)} m`);
+    pass(Math.abs(sum - 1) < 1e-12, `${label}: shares sum to one`);
+    const corner = { semi: 0, spar: 1, tlp: 2 }[label];
+    pass(a.shares[corner] > 0.7, `${label}: sits in its own corner of the triangle`);
+    pass(a.C55 > 0, `${label}: is stable in pitch`);
+  }
+  const a = F.analyse(base());
+  pass(rel(a.C55, a.Cwp + a.Cbal + a.Cmoor) < 1e-12, 'the three terms add up to C55');
+  // A tension-leg platform has no hydrostatic stability at all; the tendons are
+  // the whole story. Worth pinning, because it looks like a bug otherwise.
+  const tlp = F.analyse(Object.assign(base(), { Hc: 35, D: 18, s: 40, mBallast: 2e6, rAnchor: 10, L0: 176 }));
+  console.log(`  a tension-leg platform has GM ${tlp.GM.toFixed(2)} m and is still stable, C55 ${(tlp.C55 / 1e9).toFixed(2)} GN.m/rad`);
+  pass(tlp.GM < 0 && tlp.C55 > 0, 'negative GM, held up by the tendons');
+}
+
+/* ---------------------------------------------------------- 7. periods */
+console.log('\nNatural periods of the base design:');
+{
+  const a = F.analyse(base());
+  console.log(`  surge ${a.Tsurge.toFixed(1)} s   heave ${a.Theave.toFixed(1)} s   pitch ${a.Tpitch.toFixed(1)} s`);
+  pass(a.Tsurge > 40, 'surge is far below the wave band, as a catenary mooring makes it');
+  pass(a.Theave > 12 && a.Theave < 40, 'heave sits above the wave band');
+  pass(a.Tpitch > 12, 'pitch sits above the wave band');
+}
+
+console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} CHECK(S) FAILED.`);
+process.exit(failures === 0 ? 0 : 1);

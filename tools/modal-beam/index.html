@@ -1,0 +1,665 @@
+<title>Cantilever Mode Lab</title>
+<style>
+  :root {
+    --bg: #f7f7f4;
+    --panel: #ffffff;
+    --ink: #1b1b19;
+    --soft: #56564f;
+    --muted: #8a8a80;
+    --rule: #dedcd4;
+    --m1: #2f6f4f;
+    --m2: #c0722b;
+    --m3: #2c5aa0;
+    --hot: #c0392b;
+    --beam: #33332e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #171815; --panel: #1f201d; --ink: #ecebe3; --soft: #b4b3aa;
+      --muted: #85847b; --rule: #33342e;
+      --m1: #6fb891; --m2: #dda15e; --m3: #7ba3d8; --hot: #e0806e; --beam: #d6d5cc;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #171815; --panel: #1f201d; --ink: #ecebe3; --soft: #b4b3aa;
+    --muted: #85847b; --rule: #33342e;
+    --m1: #6fb891; --m2: #dda15e; --m3: #7ba3d8; --hot: #e0806e; --beam: #d6d5cc;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: Archivo, "Helvetica Neue", system-ui, sans-serif;
+    font-size: 15px; line-height: 1.45;
+    padding: 14px 14px 32px;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 60rem; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+
+  header { display: flex; flex-direction: column; gap: 3px; }
+  h1 { font-size: 1.25rem; font-weight: 700; margin: 0; letter-spacing: -0.015em; }
+  .sub { color: var(--soft); font-size: 0.86rem; }
+
+  .freqs {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.78rem;
+  }
+  .fchip {
+    display: flex; gap: 6px; align-items: baseline;
+    background: var(--panel); border: 1px solid var(--rule);
+    border-left-width: 3px; border-radius: 4px; padding: 4px 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .fchip .lab { color: var(--muted); }
+  .fchip.f1 { border-left-color: var(--m1); }
+  .fchip.f2 { border-left-color: var(--m2); }
+  .fchip.f3 { border-left-color: var(--m3); }
+  .ratio { color: var(--muted); }
+
+  .stage { display: grid; grid-template-columns: minmax(190px, 1fr) 1.55fr; gap: 12px; }
+  @media (max-width: 640px) { .stage { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--rule);
+    border-radius: 6px; padding: 8px;
+  }
+  .card h2 {
+    font-size: 0.68rem; font-weight: 600; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 6px;
+  }
+  canvas { display: block; width: 100%; touch-action: manipulation; }
+  .plots { display: flex; flex-direction: column; gap: 12px; }
+
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 10px 18px; }
+  .ctl { display: flex; flex-direction: column; gap: 2px; }
+  .ctl .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .ctl label { font-size: 0.82rem; color: var(--soft); }
+  .ctl output {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.78rem; font-variant-numeric: tabular-nums; color: var(--ink);
+  }
+  input[type=range] { width: 100%; accent-color: var(--m1); height: 26px; }
+
+  .buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+  button {
+    font: inherit; font-size: 0.85rem; font-weight: 500;
+    padding: 7px 12px; border-radius: 5px;
+    border: 1px solid var(--rule); background: var(--panel); color: var(--ink);
+    cursor: pointer; min-height: 38px;
+  }
+  button:hover { background: var(--bg); }
+  button.on { background: var(--m1); border-color: var(--m1); color: #fff; }
+  button.hot { border-color: var(--hot); color: var(--hot); }
+  button.hot.on { background: var(--hot); border-color: var(--hot); color: #fff; }
+  button:focus-visible { outline: 2px solid var(--m1); outline-offset: 2px; }
+
+  .try {
+    background: var(--panel); border: 1px solid var(--rule);
+    border-left: 3px solid var(--m2); border-radius: 4px;
+    padding: 9px 11px; font-size: 0.87rem; color: var(--soft);
+  }
+  .try b { color: var(--ink); font-weight: 600; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.74rem; color: var(--muted);
+            font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .key { display: inline-flex; align-items: center; gap: 4px; }
+  .sw { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+  .foot { font-size: 0.76rem; color: var(--muted); }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Cantilever Mode Lab</h1>
+    <div class="sub">A clamped–free beam carrying a movable mass. Excite it and watch which modes respond.</div>
+  </header>
+
+  <div class="freqs" id="freqs"></div>
+
+  <div class="stage">
+    <div class="card">
+      <h2>Beam</h2>
+      <canvas id="beam" height="620"></canvas>
+    </div>
+    <div class="plots">
+      <div class="card">
+        <h2>Tip displacement</h2>
+        <canvas id="tip" height="200"></canvas>
+      </div>
+      <div class="card">
+        <h2>Modal coordinates <span class="ratio">q₁ q₂ q₃</span></h2>
+        <canvas id="modal" height="260"></canvas>
+        <div class="legend" style="margin-top:6px">
+          <span class="key"><i class="sw" style="background:var(--m1)"></i>mode 1</span>
+          <span class="key"><i class="sw" style="background:var(--m2)"></i>mode 2</span>
+          <span class="key"><i class="sw" style="background:var(--m3)"></i>mode 3</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="ctl">
+      <div class="row"><label for="pos">Mass height</label><output id="posOut"></output></div>
+      <input type="range" id="pos" min="6" max="100" step="1" value="100">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="mag">Mass / beam mass</label><output id="magOut"></output></div>
+      <input type="range" id="mag" min="0" max="200" step="1" value="50">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="zeta">Damping ζ</label><output id="zetaOut"></output></div>
+      <input type="range" id="zeta" min="1" max="120" step="1" value="12">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="drive">Forcing frequency</label><output id="driveOut"></output></div>
+      <input type="range" id="drive" min="10" max="2600" step="5" value="56">
+    </div>
+  </div>
+
+  <div class="buttons">
+    <button id="pluck">Pluck the tip</button>
+    <button id="s1">Start in mode 1</button>
+    <button id="s2">Start in mode 2</button>
+    <button id="s3">Start in mode 3</button>
+    <button id="force" class="hot">Harmonic forcing</button>
+    <button id="snap">Snap to nearest ƒ</button>
+    <button id="shapes" class="on">Mode shapes</button>
+    <button id="stop">Stop</button>
+  </div>
+
+  <div class="try">
+    <b>Try this.</b> Set mass ≈ 1.0 and slide it to where mode 2 crosses zero
+    (about 78 % up). ƒ₁ keeps falling as the mass rises, but ƒ₂ barely moves —
+    a mass sitting on a mode's node cannot affect that mode.
+  </div>
+
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ maths
+ *
+ * Euler-Bernoulli finite elements, then genuine modal decomposition. The model
+ * is the thing being taught, so it is solved rather than imitated: assemble K
+ * and M, solve the generalised eigenproblem, and integrate one uncoupled
+ * oscillator per mode.
+ *
+ * Units are normalised: L = 1, EI = 1, rho*A = 1. A bare cantilever then has
+ * omega_1 = 3.5160, which is the check that the assembly is right.
+ */
+const NEL = 16;                 // elements
+const NDOF = 2 * NEL;           // free DOFs after clamping the root
+const NMODES = 6;               // modes kept in the superposition
+
+function zeros(n, m) { return Array.from({ length: n }, () => new Float64Array(m)); }
+
+/** Element stiffness and consistent mass for a beam of length h. */
+function elementMatrices(h) {
+  const k = [
+    [12, 6 * h, -12, 6 * h],
+    [6 * h, 4 * h * h, -6 * h, 2 * h * h],
+    [-12, -6 * h, 12, -6 * h],
+    [6 * h, 2 * h * h, -6 * h, 4 * h * h],
+  ].map((r) => r.map((v) => v / (h * h * h)));
+
+  const m = [
+    [156, 22 * h, 54, -13 * h],
+    [22 * h, 4 * h * h, 13 * h, -3 * h * h],
+    [54, 13 * h, 156, -22 * h],
+    [-13 * h, -3 * h * h, -22 * h, 4 * h * h],
+  ].map((r) => r.map((v) => (v * h) / 420));
+
+  return { k, m };
+}
+
+/**
+ * Assemble the clamped-free beam with a point mass.
+ * Node 0 is clamped, so its two DOFs are simply left out.
+ */
+function assemble(massRatio, massNode) {
+  const h = 1 / NEL;
+  const { k, m } = elementMatrices(h);
+  const K = zeros(NDOF, NDOF);
+  const M = zeros(NDOF, NDOF);
+
+  for (let e = 0; e < NEL; e++) {
+    // Global DOF for local index: node e -> 2e-2, 2e-1 (node 0 removed).
+    const map = [2 * e - 2, 2 * e - 1, 2 * e, 2 * e + 1];
+    for (let a = 0; a < 4; a++) {
+      const A = map[a];
+      if (A < 0) continue;
+      for (let b = 0; b < 4; b++) {
+        const B = map[b];
+        if (B < 0) continue;
+        K[A][B] += k[a][b];
+        M[A][B] += m[a][b];
+      }
+    }
+  }
+
+  // The point mass acts on the translational DOF of its node.
+  if (massRatio > 0 && massNode >= 1) {
+    const d = 2 * massNode - 2;
+    M[d][d] += massRatio; // beam mass is rho*A*L = 1, so this IS the ratio
+  }
+  return { K, M };
+}
+
+/** Cholesky M = L*L^T. M is positive definite for a consistent mass matrix. */
+function cholesky(M) {
+  const n = M.length;
+  const L = zeros(n, n);
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j <= i; j++) {
+      let s = M[i][j];
+      for (let k = 0; k < j; k++) s -= L[i][k] * L[j][k];
+      if (i === j) L[i][i] = Math.sqrt(Math.max(s, 1e-300));
+      else L[i][j] = s / L[j][j];
+    }
+  }
+  return L;
+}
+
+/** Solve L*y = b for lower-triangular L. */
+function forwardSolve(L, b) {
+  const n = L.length;
+  const y = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let s = b[i];
+    for (let k = 0; k < i; k++) s -= L[i][k] * y[k];
+    y[i] = s / L[i][i];
+  }
+  return y;
+}
+
+/** Solve L^T x = y for lower-triangular L. */
+function backSolveT(L, y) {
+  const n = L.length;
+  const x = new Float64Array(n);
+  for (let i = n - 1; i >= 0; i--) {
+    let s = y[i];
+    for (let k = i + 1; k < n; k++) s -= L[k][i] * x[k];
+    x[i] = s / L[i][i];
+  }
+  return x;
+}
+
+/** Symmetric eigenproblem by cyclic Jacobi rotations. */
+function jacobiEigen(Ain) {
+  const n = Ain.length;
+  const A = Ain.map((r) => Float64Array.from(r));
+  const V = zeros(n, n);
+  for (let i = 0; i < n; i++) V[i][i] = 1;
+
+  for (let sweep = 0; sweep < 60; sweep++) {
+    let off = 0;
+    for (let p = 0; p < n; p++) for (let q = p + 1; q < n; q++) off += A[p][q] * A[p][q];
+    if (Math.sqrt(off) < 1e-11) break;
+
+    for (let p = 0; p < n; p++) {
+      for (let q = p + 1; q < n; q++) {
+        if (Math.abs(A[p][q]) < 1e-14) continue;
+        const theta = (A[q][q] - A[p][p]) / (2 * A[p][q]);
+        const sign = theta >= 0 ? 1 : -1;
+        const t = sign / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+        const c = 1 / Math.sqrt(t * t + 1);
+        const s = t * c;
+
+        for (let k = 0; k < n; k++) {
+          const akp = A[k][p], akq = A[k][q];
+          A[k][p] = c * akp - s * akq;
+          A[k][q] = s * akp + c * akq;
+        }
+        for (let k = 0; k < n; k++) {
+          const apk = A[p][k], aqk = A[q][k];
+          A[p][k] = c * apk - s * aqk;
+          A[q][k] = s * apk + c * aqk;
+        }
+        for (let k = 0; k < n; k++) {
+          const vkp = V[k][p], vkq = V[k][q];
+          V[k][p] = c * vkp - s * vkq;
+          V[k][q] = s * vkp + c * vkq;
+        }
+      }
+    }
+  }
+  return { values: A.map((r, i) => r[i]), vectors: V };
+}
+
+/**
+ * Modes of the loaded beam.
+ *
+ * Reduces K*phi = omega^2 * M*phi to a standard symmetric problem through the
+ * Cholesky factor of M. Because M = L*L^T, unit-length eigenvectors of the
+ * reduced problem come back mass-normalised (phi^T M phi = 1) for free, which
+ * is what makes the modal equations below have unit modal mass.
+ */
+function solveModes(massRatio, massNode) {
+  const { K, M } = assemble(massRatio, massNode);
+  const L = cholesky(M);
+
+  const Y = zeros(NDOF, NDOF);                       // Y = L^-1 K
+  for (let j = 0; j < NDOF; j++) {
+    const col = forwardSolve(L, K.map((r) => r[j]));
+    for (let i = 0; i < NDOF; i++) Y[i][j] = col[i];
+  }
+  const A = zeros(NDOF, NDOF);                       // A = L^-1 Y^T
+  for (let j = 0; j < NDOF; j++) {
+    // Column j of Y^T is ROW j of Y, not column j.
+    const col = forwardSolve(L, Y[j]);
+    for (let i = 0; i < NDOF; i++) A[i][j] = col[i];
+  }
+  for (let i = 0; i < NDOF; i++) {                   // symmetrise round-off
+    for (let j = i + 1; j < NDOF; j++) {
+      const v = 0.5 * (A[i][j] + A[j][i]);
+      A[i][j] = v; A[j][i] = v;
+    }
+  }
+
+  const { values, vectors } = jacobiEigen(A);
+  const order = values.map((v, i) => i).sort((a, b) => values[a] - values[b]);
+
+  const omega = [];
+  const phi = [];
+  for (let r = 0; r < NMODES; r++) {
+    const idx = order[r];
+    omega.push(Math.sqrt(Math.max(values[idx], 0)));
+    const x = new Float64Array(NDOF);
+    for (let i = 0; i < NDOF; i++) x[i] = vectors[i][idx];
+    const v = backSolveT(L, x);                      // phi = L^-T x
+    // Sign convention: tip deflection positive, so shapes do not flip as you drag.
+    const tip = v[NDOF - 2];
+    const sgn = tip >= 0 ? 1 : -1;
+    for (let i = 0; i < NDOF; i++) v[i] *= sgn;
+    phi.push(v);
+  }
+  return { omega, phi };
+}
+
+/* --------------------------------------------------------------- state */
+
+const state = {
+  massRatio: 0.5,
+  massNode: NEL,
+  zeta: 0.012,
+  driveHz: 0.56,
+  forcing: false,
+  showShapes: true,
+  q: new Float64Array(NMODES),
+  qd: new Float64Array(NMODES),
+  t: 0,
+  omega: [], phi: [],
+};
+
+function recompute() {
+  const { omega, phi } = solveModes(state.massRatio, state.massNode);
+  state.omega = omega;
+  state.phi = phi;
+  renderFreqs();
+}
+
+const TIP_DOF = NDOF - 2;
+const tipOf = (r) => state.phi[r][TIP_DOF];
+
+/** Static tip-load shape: a realistic pluck, mode-1 dominant but not pure. */
+function pluck() {
+  for (let r = 0; r < NMODES; r++) {
+    state.q[r] = state.omega[r] > 1e-6 ? (tipOf(r) * 0.12) / (state.omega[r] ** 2) : 0;
+    state.qd[r] = 0;
+  }
+  state.forcing = false; syncForce(); state.t = 0; clearTraces();
+}
+
+function startInMode(r) {
+  state.q.fill(0); state.qd.fill(0);
+  state.q[r] = 0.035;
+  state.forcing = false; syncForce(); state.t = 0; clearTraces();
+}
+
+function stopAll() {
+  state.q.fill(0); state.qd.fill(0);
+  state.forcing = false; syncForce(); clearTraces();
+}
+
+/** One RK4 step of the uncoupled modal oscillators. */
+function step(dt) {
+  const w = state.omega, z = state.zeta;
+  const Om = 2 * Math.PI * state.driveHz;
+  const amp = state.forcing ? 0.03 : 0;
+
+  const accel = (r, q, qd, t) =>
+    amp * tipOf(r) * Math.sin(Om * t) - 2 * z * w[r] * qd - w[r] * w[r] * q;
+
+  for (let r = 0; r < NMODES; r++) {
+    const q = state.q[r], v = state.qd[r], t = state.t;
+    const a1 = accel(r, q, v, t);
+    const a2 = accel(r, q + 0.5 * dt * v, v + 0.5 * dt * a1, t + 0.5 * dt);
+    const a3 = accel(r, q + 0.5 * dt * (v + 0.5 * dt * a1), v + 0.5 * dt * a2, t + 0.5 * dt);
+    const a4 = accel(r, q + dt * (v + 0.5 * dt * a2), v + dt * a3, t + dt);
+    state.q[r] = q + dt * (v + (dt / 6) * (a1 + a2 + a3));
+    state.qd[r] = v + (dt / 6) * (a1 + 2 * a2 + 2 * a3 + a4);
+  }
+  state.t += dt;
+}
+
+/** Lateral displacement at each node, from the modal sum. */
+function nodalDisplacement() {
+  const v = new Float64Array(NEL + 1);
+  for (let n = 1; n <= NEL; n++) {
+    let s = 0;
+    for (let r = 0; r < NMODES; r++) s += state.phi[r][2 * n - 2] * state.q[r];
+    v[n] = s;
+  }
+  return v;
+}
+
+/* ------------------------------------------------------------ rendering */
+
+const beamCv = document.getElementById('beam');
+const tipCv = document.getElementById('tip');
+const modalCv = document.getElementById('modal');
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function fit(cv) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.getAttribute('height') / 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h)) {
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h);
+  }
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr * (h / cv.height), 0, 0);
+  return { g, w, h: h };
+}
+
+const GAIN = 620;
+
+function drawBeam() {
+  const { g, w, h } = fit(beamCv);
+  g.clearRect(0, 0, w, h);
+  const x0 = w / 2, top = 18, bot = h - 26;
+  const span = bot - top;
+  const v = nodalDisplacement();
+
+  // Ground
+  g.strokeStyle = css('--rule'); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(x0 - 46, bot); g.lineTo(x0 + 46, bot); g.stroke();
+  for (let i = -4; i <= 4; i++) {
+    g.beginPath(); g.moveTo(x0 + i * 11, bot); g.lineTo(x0 + i * 11 - 7, bot + 8); g.stroke();
+  }
+
+  // Mode shapes, faint, scaled to a common tip height
+  if (state.showShapes) {
+    const cols = [css('--m1'), css('--m2'), css('--m3')];
+    for (let r = 0; r < 3; r++) {
+      let peak = 0;
+      for (let n = 1; n <= NEL; n++) peak = Math.max(peak, Math.abs(state.phi[r][2 * n - 2]));
+      g.strokeStyle = cols[r]; g.globalAlpha = 0.32; g.lineWidth = 1.4;
+      g.beginPath();
+      g.moveTo(x0, bot);
+      for (let n = 1; n <= NEL; n++) {
+        const y = bot - (n / NEL) * span;
+        g.lineTo(x0 + (state.phi[r][2 * n - 2] / peak) * 40, y);
+      }
+      g.stroke();
+      g.globalAlpha = 1;
+    }
+  }
+
+  // The beam itself
+  g.strokeStyle = css('--beam'); g.lineWidth = 3.5; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(x0, bot);
+  for (let n = 1; n <= NEL; n++) {
+    g.lineTo(x0 + v[n] * GAIN, bot - (n / NEL) * span);
+  }
+  g.stroke();
+
+  // The mass
+  const mn = state.massNode;
+  const my = bot - (mn / NEL) * span;
+  const mx = x0 + v[mn] * GAIN;
+  const size = 9 + 13 * Math.min(1, state.massRatio / 2);
+  g.fillStyle = css('--hot');
+  g.fillRect(mx - size, my - size * 0.62, size * 2, size * 1.24);
+
+  g.fillStyle = css('--muted');
+  g.font = '11px "IBM Plex Mono", monospace';
+  g.fillText((state.massNode / NEL).toFixed(2) + ' L', 6, 14);
+}
+
+const TRACE = 360;
+const traceTip = [];
+const traceQ = [[], [], []];
+function clearTraces() { traceTip.length = 0; traceQ.forEach((a) => (a.length = 0)); }
+
+function pushTraces() {
+  let tip = 0;
+  for (let r = 0; r < NMODES; r++) tip += state.phi[r][TIP_DOF] * state.q[r];
+  traceTip.push(tip);
+  for (let r = 0; r < 3; r++) traceQ[r].push(state.q[r]);
+  if (traceTip.length > TRACE) traceTip.shift();
+  traceQ.forEach((a) => { if (a.length > TRACE) a.shift(); });
+}
+
+function plot(cv, series, colors, symmetric) {
+  const { g, w, h } = fit(cv);
+  g.clearRect(0, 0, w, h);
+  let peak = 1e-9;
+  for (const s of series) for (const y of s) peak = Math.max(peak, Math.abs(y));
+  const mid = h / 2, amp = (h / 2 - 6) / peak;
+
+  g.strokeStyle = css('--rule'); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(0, mid); g.lineTo(w, mid); g.stroke();
+
+  series.forEach((s, i) => {
+    if (s.length < 2) return;
+    g.strokeStyle = colors[i]; g.lineWidth = 1.6; g.beginPath();
+    s.forEach((y, k) => {
+      const x = (k / (TRACE - 1)) * w;
+      const py = mid - y * amp;
+      if (k === 0) g.moveTo(x, py); else g.lineTo(x, py);
+    });
+    g.stroke();
+  });
+  void symmetric;
+}
+
+function renderFreqs() {
+  const el = document.getElementById('freqs');
+  el.replaceChildren();
+  for (let r = 0; r < 3; r++) {
+    const hz = state.omega[r] / (2 * Math.PI);
+    const d = document.createElement('div');
+    d.className = 'fchip f' + (r + 1);
+    d.innerHTML = '<span class="lab">ƒ' + '₁₂₃'[r] + '</span><span>' + hz.toFixed(3) +
+      ' Hz</span><span class="ratio">×' + (state.omega[r] / state.omega[0]).toFixed(2) + '</span>';
+    el.appendChild(d);
+  }
+  document.getElementById('foot').textContent =
+    'Normalised units (L = 1, EI = 1, ρA = 1). ' + NEL +
+    ' Euler–Bernoulli elements, ' + NMODES + ' modes retained. A bare cantilever gives ω₁ = 3.516.';
+}
+
+/* ------------------------------------------------------------- controls */
+
+const $ = (id) => document.getElementById(id);
+
+function syncForce() {
+  $('force').classList.toggle('on', state.forcing);
+  $('force').textContent = state.forcing ? 'Forcing on' : 'Harmonic forcing';
+}
+
+$('pos').addEventListener('input', (e) => {
+  state.massNode = Math.max(1, Math.round((e.target.value / 100) * NEL));
+  $('posOut').textContent = (state.massNode / NEL).toFixed(2) + ' L';
+  recompute();
+});
+$('mag').addEventListener('input', (e) => {
+  state.massRatio = e.target.value / 100;
+  $('magOut').textContent = state.massRatio.toFixed(2);
+  recompute();
+});
+$('zeta').addEventListener('input', (e) => {
+  state.zeta = e.target.value / 1000;
+  $('zetaOut').textContent = (state.zeta * 100).toFixed(1) + ' %';
+});
+$('drive').addEventListener('input', (e) => {
+  state.driveHz = e.target.value / 1000;
+  $('driveOut').textContent = state.driveHz.toFixed(3) + ' Hz';
+});
+
+$('pluck').addEventListener('click', pluck);
+$('s1').addEventListener('click', () => startInMode(0));
+$('s2').addEventListener('click', () => startInMode(1));
+$('s3').addEventListener('click', () => startInMode(2));
+$('stop').addEventListener('click', stopAll);
+$('force').addEventListener('click', () => { state.forcing = !state.forcing; syncForce(); });
+$('shapes').addEventListener('click', () => {
+  state.showShapes = !state.showShapes;
+  $('shapes').classList.toggle('on', state.showShapes);
+});
+$('snap').addEventListener('click', () => {
+  // Jump the dial to whichever natural frequency is closest - finding
+  // resonance by hand on a slider is fiddly and not the point of the exercise.
+  let best = state.omega[0] / (2 * Math.PI), d = Infinity;
+  for (let r = 0; r < 3; r++) {
+    const hz = state.omega[r] / (2 * Math.PI);
+    if (Math.abs(hz - state.driveHz) < d) { d = Math.abs(hz - state.driveHz); best = hz; }
+  }
+  state.driveHz = best;
+  $('drive').value = Math.round(best * 1000);
+  $('driveOut').textContent = best.toFixed(3) + ' Hz';
+  state.forcing = true; syncForce();
+});
+
+/* ----------------------------------------------------------------- loop */
+
+let last = performance.now();
+let acc = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  acc += dt;
+  const H = 1 / 240;
+  let guard = 0;
+  while (acc >= H && guard++ < 400) { step(H); acc -= H; }
+
+  pushTraces();
+  drawBeam();
+  plot(tipCv, [traceTip], [css('--ink')], true);
+  plot(modalCv, traceQ, [css('--m1'), css('--m2'), css('--m3')], true);
+  requestAnimationFrame(frame);
+}
+
+// Open in a working state: solved, labelled, and already ringing down.
+$('posOut').textContent = '1.00 L';
+$('magOut').textContent = '0.50';
+$('zetaOut').textContent = '1.2 %';
+recompute();
+state.driveHz = state.omega[0] / (2 * Math.PI);
+$('drive').value = Math.round(state.driveHz * 1000);
+$('driveOut').textContent = state.driveHz.toFixed(3) + ' Hz';
+syncForce();
+pluck();
+requestAnimationFrame(frame);
+</script>

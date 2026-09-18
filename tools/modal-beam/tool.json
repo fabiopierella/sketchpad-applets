@@ -1,0 +1,8 @@
+{
+  "name": "Cantilever mode lab",
+  "description": "A cantilever beam you can load, pluck and drive. Sixteen Euler-Bernoulli elements solved as a generalised eigenproblem; watch the tip trace and the modal coordinates while you move a mass along the span.",
+  "status": "live",
+  "entry": "index.html",
+  "tags": ["vibration", "structures", "finite-elements"],
+  "course": "46000 Introduction to Wind Energy"
+}

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sketchpad applets</title>
+<style>
+  :root {
+    --bg: #f7f7f4;
+    --panel: #ffffff;
+    --ink: #1b1b1a;
+    --muted: #6b6b66;
+    --line: #dededa;
+    --accent: #2f6fb0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17181a;
+      --panel: #1f2023;
+      --ink: #e8e8e4;
+      --muted: #9a9a94;
+      --line: #32343a;
+      --accent: #7fb3e6;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 48px 16px 80px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Helvetica Neue", system-ui, sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin: 0 0 8px; }
+  .lede { color: var(--muted); margin: 0 0 36px; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+  a.tool {
+    display: block;
+    padding: 18px 20px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    text-decoration: none;
+    color: inherit;
+  }
+  a.tool:hover { border-color: var(--accent); }
+  .name { font-weight: 600; margin-bottom: 4px; }
+  .desc { color: var(--muted); font-size: 0.94rem; }
+  .tags { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag {
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+  }
+  footer { margin-top: 48px; color: var(--muted); font-size: 0.86rem; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Sketchpad applets</h1>
+  <p class="lede">
+    Interactive pages for teaching. Each one runs on its own in a browser, and
+    each one can be embedded on a sketchpad board.
+  </p>
+  <ul id="tools"><li class="desc">Loading&hellip;</li></ul>
+  <footer>
+    Source: <a href="https://github.com/fabiopierella/sketchpad-applets">github.com/fabiopierella/sketchpad-applets</a>
+  </footer>
+</div>
+<script>
+// The tool list is data, not markup: a static host cannot list a directory, so
+// manifest.json names the slugs and each tool describes itself in tool.json.
+// Adding a tool means adding a folder and a line in the manifest, nothing here.
+function loadJSON(url) {
+  return fetch(url).then(function (r) {
+    if (!r.ok) throw new Error(url + ': ' + r.status);
+    return r.json();
+  });
+}
+
+function render(tools) {
+  var ul = document.getElementById('tools');
+  ul.textContent = '';
+  if (!tools.length) {
+    var empty = document.createElement('li');
+    empty.className = 'desc';
+    empty.textContent = 'No tools yet.';
+    ul.appendChild(empty);
+    return;
+  }
+  tools.forEach(function (t) {
+    var li = document.createElement('li');
+    var a = document.createElement('a');
+    a.className = 'tool';
+    a.href = 'tools/' + t.slug + '/' + (t.entry || 'index.html');
+
+    var name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = t.name || t.slug;
+    a.appendChild(name);
+
+    var desc = document.createElement('div');
+    desc.className = 'desc';
+    desc.textContent = t.description || '';
+    a.appendChild(desc);
+
+    if (Array.isArray(t.tags) && t.tags.length) {
+      var tags = document.createElement('div');
+      tags.className = 'tags';
+      t.tags.forEach(function (label) {
+        var span = document.createElement('span');
+        span.className = 'tag';
+        span.textContent = label;
+        tags.appendChild(span);
+      });
+      a.appendChild(tags);
+    }
+
+    li.appendChild(a);
+    ul.appendChild(li);
+  });
+}
+
+loadJSON('tools/manifest.json')
+  .then(function (manifest) {
+    var slugs = manifest.tools || [];
+    return Promise.all(
+      slugs.map(function (slug) {
+        return loadJSON('tools/' + slug + '/tool.json')
+          .then(function (t) {
+            t.slug = slug;
+            return t;
+          })
+          // One broken tool.json should not blank the whole index.
+          .catch(function () {
+            return { slug: slug, name: slug };
+          });
+      }),
+    );
+  })
+  .then(render)
+  .catch(function (err) {
+    document.getElementById('tools').innerHTML =
+      '<li class="desc">Could not load the tool list: ' + err.message + '</li>';
+  });
+</script>
+</body>
+</html>

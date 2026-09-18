@@ -1,0 +1,12 @@
+{
+  "name": "sketchpad-applets",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interactive teaching applets, standalone in a browser and embeddable on a sketchpad board",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/test.mjs",
+    "serve": "python3 -m http.server 8080"
+  }
+}

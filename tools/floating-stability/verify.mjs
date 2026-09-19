@@ -35,7 +35,7 @@ const F = {};
 for (const name of [
   'colArea', 'colInertia', 'totals', 'immersion', 'catenary', 'lineForce',
   'forces', 'equilibrium', 'stiffness', 'analyse', 'shares', 'linePoints', 'bisect',
-  'designFor', 'hubHeight',
+  'designFor', 'hubHeight', 'massMatrix', 'acceleration', 'pullLever',
 ]) {
   F[name] = eval(maths + '; ' + name);
 }
@@ -149,9 +149,10 @@ for (const [label, P, xf, zf] of [
   // A tendon straight below the hull: pure stretch, no catenary anywhere.
   const P = Object.assign(base(), { rAnchor: 0, L0: 180, EA: 1.5e9 });
   const f = F.lineForce(P, 0, -5, 0, -200);
-  const exact = (P.EA * (195 - P.L0)) / P.L0;
-  console.log(`  ${'vertical tendon'.padEnd(16)} mode ${f.mode.padEnd(10)} T ${(f.T / 1e6).toFixed(3)} MN   exact EA(d-L0)/L0 ${(exact / 1e6).toFixed(3)} MN`);
-  pass(rel(f.T, exact) < 1e-9, 'a taut tendon carries EA (d - L0) / L0');
+  // Stretch, plus the line's own weight hanging from the fairlead.
+  const exact = (P.EA * (195 - P.L0)) / P.L0 + P.w * P.L0;
+  console.log(`  ${'vertical tendon'.padEnd(16)} mode ${f.mode.padEnd(10)} T ${(f.T / 1e6).toFixed(3)} MN   exact EA(d-L0)/L0 + wL ${(exact / 1e6).toFixed(3)} MN`);
+  pass(rel(f.T, exact) < 1e-9, 'a taut tendon carries its stretch plus its weight');
   pass(Math.abs(f.Fx) < 1e-9, 'a vertical tendon pulls straight down');
 }
 
@@ -261,6 +262,130 @@ console.log('\nThe grid of designs offered on the triangle:');
   }
   console.log(`  worst departure from displaced mass = total mass: ${worstArch.toExponential(1)}`);
   pass(worstArch < 1e-9, 'every design on the grid floats where Archimedes says');
+}
+
+/* ------------------------------------------ 9. the platform actually moves */
+// These exist because every static check above passed while the animation was
+// visibly wrong: it integrated a frozen stiffness, so a catenary never
+// stiffened and the platform slid out and stalled. The equations of motion are
+// in the tested slice now precisely so that cannot happen again.
+function rk4(P, res, x0, v0, Q, seconds, h) {
+  let x = x0.slice();
+  let v = v0.slice();
+  const mix = (p, q, k) => [p[0] + k * q[0], p[1] + k * q[1], p[2] + k * q[2]];
+  for (let t = 0; t < seconds / h; t++) {
+    const a1 = F.acceleration(P, res, x, v, Q);
+    const x2 = mix(x, v, h / 2), v2 = mix(v, a1, h / 2);
+    const a2 = F.acceleration(P, res, x2, v2, Q);
+    const x3 = mix(x, v2, h / 2), v3 = mix(v, a2, h / 2);
+    const a3 = F.acceleration(P, res, x3, v3, Q);
+    const x4 = mix(x, v3, h), v4 = mix(v, a3, h);
+    const a4 = F.acceleration(P, res, x4, v4, Q);
+    for (let i = 0; i < 3; i++) {
+      x[i] += (h / 6) * (v[i] + 2 * v2[i] + 2 * v3[i] + v4[i]);
+      v[i] += (h / 6) * (a1[i] + 2 * a2[i] + 2 * a3[i] + a4[i]);
+    }
+  }
+  return { x, v };
+}
+
+console.log('\nA catenary stiffens as it lifts off the bed:');
+{
+  const P = F.designFor(0, 0);
+  const r = F.analyse(P);
+  const zero = F.forces(P, r.q[0], r.q[1], r.q[2], { moor: true }).Fx;
+  const at = (dx) => -(F.forces(P, r.q[0] + dx, r.q[1], r.q[2], { moor: true }).Fx - zero);
+  const ratio = at(90) / (r.C[0][0] * 90);
+  console.log(`  restoring at 90 m is ${ratio.toFixed(2)}x what a constant stiffness would give`);
+  pass(ratio > 2, 'the line stiffens with offset rather than staying linear');
+
+  // The secant stiffness must climb, and the force must never fall back. An
+  // earlier version switched from a hanging line to a weightless elastic rod
+  // once the chord passed the unstretched length, and the restoring force
+  // collapsed by two thirds at the crossover - the platform lurched outward
+  // exactly where it should have been caught. Sampled finely enough to see it.
+  // Tolerance is relative: the line solve leaves a fraction of a percent of
+  // wobble at twenty meganewtons, and the fault being guarded against was a
+  // collapse of two thirds, so 5% separates them with room to spare.
+  let prev = -Infinity;
+  let dropAt = 0;
+  for (let dx = 0; dx <= 110; dx += 1) {
+    const f = at(dx);
+    if (f < prev * 0.95 && !dropAt) dropAt = dx;
+    prev = f;
+  }
+  console.log(`  secant stiffness ${(at(10) / 10).toExponential(2)} N/m at 10 m, ${(at(90) / 90).toExponential(2)} N/m at 90 m`);
+  pass(!dropAt, dropAt ? `restoring falls back at ${dropAt} m` : 'restoring never falls back as it is pulled out');
+  pass(at(90) / 90 > 1.5 * (at(10) / 10), 'the line is markedly stiffer far out than near rest');
+}
+
+console.log('\nLeft alone, it stays put:');
+{
+  let worst = 0;
+  for (let j = 0; j < 5; j++) {
+    for (let i = 0; i < 5; i++) {
+      const P = F.designFor(i / 4, j / 4);
+      const r = F.analyse(P);
+      const a = F.acceleration(P, r, [0, 0, 0], [0, 0, 0], [0, 0, 0]);
+      worst = Math.max(worst, Math.abs(a[0]), Math.abs(a[1]), Math.abs(a[2]));
+      const M = F.massMatrix(P, r);
+      const minor2 = M[0][0] * M[1][1];
+      const det = M[0][0] * (M[1][1] * M[2][2]) - M[0][2] * (M[1][1] * M[2][0]);
+      pass(M[0][0] > 0 && minor2 > 0 && det > 0, `design (${i}, ${j}): mass matrix is positive definite`);
+    }
+  }
+  console.log(`  worst acceleration at rest across the grid: ${worst.toExponential(1)} m/s^2`);
+  pass(worst < 1e-6, 'nothing creeps on its own');
+}
+
+console.log('\nHeld at rated thrust (2.4 MN at the nacelle):');
+{
+  const cases = [
+    ['catenary semi', 0, 0],
+    ['tension-leg', 0, 1],
+    ['spar', 1, 0],
+  ];
+  const out = {};
+  for (const [label, sl, tg] of cases) {
+    const P = F.designFor(sl, tg);
+    const r = F.analyse(P);
+    const Q = [2.4e6, 0, 2.4e6 * F.hubHeight(P)];
+    const { x } = rk4(P, r, [0, 0, 0], [0, 0, 0], Q, 900, 0.02);
+    out[label] = x;
+    console.log(`  ${label.padEnd(15)} ${x[0].toFixed(1).padStart(6)} m off station, leaning ${((x[2] * 180) / Math.PI).toFixed(2)} deg`);
+  }
+  pass(out['catenary semi'][0] > 5 && out['catenary semi'][0] < 45, 'a catenary lets it drift, but not away');
+  pass(Math.abs((out['tension-leg'][2] * 180) / Math.PI) < 1.5, 'a tension-leg platform barely leans');
+  pass(out['spar'][2] > out['tension-leg'][2], 'a spar leans more than a tension-leg platform');
+}
+
+console.log('\nReleased, it comes back:');
+{
+  for (const [label, sl, tg] of [['catenary semi', 0, 0], ['tension-leg', 0, 1]]) {
+    const P = F.designFor(sl, tg);
+    const r = F.analyse(P);
+    const held = rk4(P, r, [0, 0, 0], [0, 0, 0], [3e6, 0, 3e6 * F.hubHeight(P)], 900, 0.02);
+    const back = rk4(P, r, held.x, held.v, [0, 0, 0], 4 * r.Tsurge, 0.02);
+    const shrunk = Math.abs(back.x[0]) / Math.max(1e-9, Math.abs(held.x[0]));
+    console.log(`  ${label.padEnd(15)} let go from ${held.x[0].toFixed(1)} m, after four surge periods ${back.x[0].toFixed(2)} m (${(shrunk * 100).toFixed(0)}% left)`);
+    pass(shrunk < 0.15, `${label}: springs back when released`);
+  }
+}
+
+console.log('\nThe pull acts on the lever it is given:');
+{
+  const P = F.designFor(0, 0);
+  const r = F.analyse(P);
+  const high = F.pullLever(0, F.hubHeight(P), 0);
+  const low = F.pullLever(0, 0, 0);
+  console.log(`  lever at the nacelle ${high.toFixed(0)} m, at the keel ${low.toFixed(0)} m`);
+  pass(high > 100, 'grabbing the nacelle is a long lever about the keel');
+  pass(Math.abs(low) < 1e-12, 'grabbing the keel is no lever at all');
+  const tipHigh = F.acceleration(P, r, [0, 0, 0], [0, 0, 0], [3e6, 0, 3e6 * high])[2];
+  const tipLow = F.acceleration(P, r, [0, 0, 0], [0, 0, 0], [3e6, 0, 3e6 * low])[2];
+  console.log(`  pitch acceleration: nacelle ${tipHigh.toExponential(2)}, keel ${tipLow.toExponential(2)} rad/s^2`);
+  pass(tipHigh > 0, 'pulling the nacelle downwind tips it downwind');
+  pass(tipHigh > Math.abs(tipLow), 'and tips it much more than pulling at the keel does');
 }
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} CHECK(S) FAILED.`);

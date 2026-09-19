@@ -97,7 +97,7 @@
         <h2>The tank</h2>
         <canvas id="tank" height="470"></canvas>
       </div>
-      <p class="hint" id="hint">Drag the nacelle sideways, as the wind would, and let go. Grab it low down instead and it hardly tips at all &mdash; same push, shorter lever.</p>
+      <p class="hint" id="hint">Drag the nacelle sideways, as the wind would, and let go. Grab it low down instead and it hardly tips at all &mdash; same push, shorter lever. Watch how far off station each design drifts before it pushes back.</p>
     </div>
     <div class="col">
       <div class="card">
@@ -163,6 +163,10 @@ const C_BRACE = 12000;   // pontoon and bracing per metre of column spacing, kg/
 const TOWER_UP = 35;     // tower and rotor centroid, above the top of the hull, m
 const HUB_UP = 125;      // hub, above the top of the hull, m
 const ALL = { buoy: true, weight: true, thrust: true, moor: true };
+// Fraction of critical damping, per degree of freedom. Surge is much the most
+// damped of the three on a real moored floater - the lines drag through the
+// water - and one shared figure leaves it ringing for minutes.
+const DAMP_RATIO = [0.12, 0.05, 0.05];
 
 /**
  * The tower sits on the hull, so both of these follow the hull depth rather
@@ -231,7 +235,7 @@ function bisect(f, a, b) {
   if (fa === 0) return a;
   if (fb === 0) return b;
   if (fa * fb > 0) return Math.abs(fa) < Math.abs(fb) ? a : b;
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 24; i++) {
     const mid = 0.5 * (a + b);
     const fm = f(mid);
     if (fa * fm <= 0) { b = mid; fb = fm; } else { a = mid; fa = fm; }
@@ -281,26 +285,96 @@ function catenary(L0, w, X, h) {
 }
 
 /**
- * Force on the hull from one line.
+ * Force on the hull from one line, as an elastic catenary.
  *
- * Taut once the straight distance exceeds the unstretched length, and then it
- * is the stretch that carries the load: T = EA (d - L0) / L0. That elasticity
- * is what makes a tension-leg platform possible at all - an inextensible
- * vertical tendon would be infinitely stiff.
+ * A heavy line can never be straight. Whatever the tension, it hangs in a curve
+ * whose length is its unstretched length plus its own stretch, T/EA, and that
+ * length is always greater than the straight distance to the anchor. Treating
+ * it as a weightless elastic rod once the chord exceeds the unstretched length
+ * - which an earlier version did - gives a second, spurious solution at almost
+ * no tension, so the restoring force collapsed just as the line came tight and
+ * the platform lurched outward.
+ *
+ * So there is only ever one case. Solve for the tension T that is consistent
+ * with the curve it produces:
+ *
+ *     g(T) = (tension of the catenary of length L0(1 + T/EA)) - T = 0
+ *
+ * g falls monotonically - a longer line sags more and pulls less - so a few
+ * secant steps from a bracketing guess land on it. Cheap enough to run inside
+ * the time stepping, which is the point.
  */
 function lineForce(P, xf, zf, xa, za) {
   const X = Math.abs(xf - xa);
   const h = zf - za;
   const d = Math.hypot(X, h);
-  if (!(h > 0) || d < 1e-9) return { Fx: 0, Fz: 0, H: 0, T: 0, mode: 'slack' };
+  if (!(h > 0) || d < 1e-9) return { Fx: 0, Fz: 0, H: 0, T: 0, mode: 'slack', L: P.L0 };
 
-  if (d >= P.L0) {
-    const T = (P.EA * (d - P.L0)) / P.L0;
-    return { Fx: (T * (xa - xf)) / d, Fz: (T * (za - zf)) / d, H: (T * X) / d, T, mode: 'taut' };
-  }
-  const cat = catenary(P.L0, P.w, X, h);
   const dir = xa > xf ? 1 : -1;
-  return { Fx: dir * cat.H, Fz: -cat.V, H: cat.H, T: Math.hypot(cat.H, cat.V), mode: cat.mode };
+
+  // Stretched: the line is straight and the load is carried by its own strain.
+  // Its whole weight hangs from the fairlead, because a line tight enough to
+  // be straight is clear of the seabed along its length - which is also what
+  // the sagging solution gives at the moment it goes straight, so the two
+  // descriptions hand over without a step.
+  const stretched = () => {
+    const T = Math.max(0, (P.EA * (d - P.L0)) / P.L0);
+    const weight = P.w * P.L0;
+    return {
+      Fx: (T * (xa - xf)) / d,
+      Fz: (T * (za - zf)) / d - weight,
+      H: (T * X) / d,
+      T: T + weight,
+      mode: T > 0 ? 'taut' : 'slack',
+      L: P.L0 * (1 + T / P.EA),
+    };
+  };
+
+  // A line hanging straight down has no span to sag across, so the sagging
+  // model cannot describe it at all - it reports the spare length as lying on
+  // the seabed, which is nonsense for a tendon.
+  if (X < 0.02 * h) return stretched();
+
+  // Otherwise look for a hanging shape consistent with its own stretch:
+  //
+  //     g(T) = (tension of the catenary of length L0(1 + T/EA)) - T = 0
+  //
+  // g falls monotonically, since a longer line sags more and pulls less. The
+  // line can never be shorter than the straight run, which fixes the lower
+  // bound; if g is already negative there, no hanging shape can carry the load
+  // and the line must be stretched instead. That is the crossover, and because
+  // the bound is exactly the stretch tension, the two descriptions meet there.
+  const floor = Math.max(0, (P.EA * (d * 1.000002 - P.L0)) / P.L0);
+  const shape = (T) => catenary(Math.max(d * 1.000002, P.L0 * (1 + T / P.EA)), P.w, X, h);
+  const g = (T) => {
+    const c = shape(T);
+    return Math.hypot(c.H, c.V) - T;
+  };
+
+  let a = floor;
+  let ga = g(a);
+  if (!(ga > 0)) return stretched();
+
+  let b = a + Math.max(1e5, 4 * P.w * P.L0);
+  let gb = g(b);
+  for (let i = 0; i < 20 && gb > 0; i++) { b *= 3; gb = g(b); }
+  if (gb > 0) return stretched();
+
+  for (let i = 0; i < 26; i++) {
+    const mid = 0.5 * (a + b);
+    const gm = g(mid);
+    if (gm > 0) { a = mid; ga = gm; } else { b = mid; gb = gm; }
+  }
+  const T = 0.5 * (a + b);
+  const cat = shape(T);
+  return {
+    Fx: dir * cat.H,
+    Fz: -cat.V,
+    H: cat.H,
+    T: Math.hypot(cat.H, cat.V),
+    mode: cat.mode,
+    L: Math.max(d * 1.000002, P.L0 * (1 + T / P.EA)),
+  };
 }
 
 /** Both lines, with the fairlead positions they act at. */
@@ -406,9 +480,23 @@ function equilibrium(P, guess, parts) {
   };
   let q = guess && guess.every((v) => isFinite(v)) ? guess.slice() : [0, -0.55 * P.Hc, 0];
   let ok = false;
+  // Judge convergence by how far out of balance the hull is, not by how small
+  // the last step was: the line solve carries numerical noise of its own, so
+  // the steps never quite stop shuffling even once the forces have settled.
+  //
+  // A thousandth of the hull's own weight sounds loose and is not. On a
+  // seventeen-thousand-tonne platform it is a few millimetres of draft, and
+  // whatever is left is subtracted in `acceleration`, so the hull sits exactly
+  // where this puts it and stays there.
+  const scale = Math.max(1, totals(P).mass * G);
+  const TOL = 1e-3;
   for (let it = 0; it < 80; it++) {
     const r = res(q);
     if (!r.every(isFinite)) break;
+    if (Math.abs(r[0]) + Math.abs(r[1]) < TOL * scale && Math.abs(r[2]) < TOL * scale * P.Hc) {
+      ok = true;
+      break;
+    }
     const J = jacobian(res, q);
     let dq = solve3(J, [-r[0], -r[1], -r[2]]);
     if (!dq) {
@@ -422,7 +510,7 @@ function equilibrium(P, guess, parts) {
     if (!dq.every(isFinite)) break;
     const lim = [8, 3, 0.08];
     for (let i = 0; i < 3; i++) q[i] += Math.max(-lim[i], Math.min(lim[i], dq[i]));
-    if (Math.abs(dq[0]) < 1e-7 && Math.abs(dq[1]) < 1e-7 && Math.abs(dq[2]) < 1e-9) { ok = true; break; }
+    if (Math.abs(dq[0]) < 1e-9 && Math.abs(dq[1]) < 1e-9 && Math.abs(dq[2]) < 1e-11) { ok = true; break; }
   }
   return { q, ok };
 }
@@ -498,9 +586,14 @@ function analyse(P, guess) {
 
   const am = addedMass(P, q);
   const period = (m, k) => (k > 0 ? 2 * Math.PI * Math.sqrt(m / k) : NaN);
+  const Mdiag = [T.mass + am.A11, T.mass + am.A33, T.I0 + am.A55];
+  const damp = [0, 1, 2].map(
+    (i) => 2 * DAMP_RATIO[i] * Math.sqrt(Math.max(0, Mdiag[i] * Math.max(0, C[i][i]))),
+  );
 
   return {
     ok: eq.ok, q, draft, vol, disp, KB: f.KB, KG: T.KG, BM, GM, Iwp, pierces,
+    residual: [f.Fx, f.Fz, f.M], damp,
     heel: (q[2] * 180) / Math.PI,
     Cwp, Cbal, Cmoor, C55: Cwp + Cbal + Cmoor, C, Chydro,
     mass: T.mass, I0: T.I0, added: am,
@@ -529,7 +622,7 @@ function analyse(P, guess) {
  * a place you click rather than a set of sliders to balance.
  */
 const DESIGN = {
-  depth: 150, mTop: 2.25e6, w: 1800, Ca11: 1.0, Ca33: 3.0,
+  depth: 150, mTop: 2.25e6, w: 4000, Ca11: 1.0, Ca33: 3.0,
   Hc: [38, 130],           // hull depth, m
   D: [25, 13],             // column diameter, m
   s: [64, 15],             // column spacing, m
@@ -558,17 +651,23 @@ function designFor(slender, tight) {
 
   const P = {
     Hc: bySlender(DESIGN.Hc),
-    // A platform hanging on tendons does not need spread columns, and real ones
-    // are compact. Without this the mooring can never be the dominant term.
+    // Slimmer columns as the lines take over: the waterplane term goes as
+    // D^2 s^2 and the mooring term as s^2, so only the diameter shifts the
+    // balance between them. Narrowing the spacing as well - which an earlier
+    // version did - cannot change the share at all and merely leaves the whole
+    // platform floppy, which is why a tension-leg design used to lean over.
     D: bySlender(DESIGN.D) * (1 - 0.30 * taut),
-    s: bySlender(DESIGN.s) * (1 - 0.55 * taut),
+    s: bySlender(DESIGN.s),
     depth: DESIGN.depth, mTop: DESIGN.mTop, w: DESIGN.w,
     EA: DESIGN.EAloose + (DESIGN.EAtaut - DESIGN.EAloose) * Math.pow(taut, DESIGN.EAcurve),
     Ca11: DESIGN.Ca11, Ca33: DESIGN.Ca33, thrust: 0,
-    rAnchor: DESIGN.rAnchor[0] + (DESIGN.rAnchor[1] - DESIGN.rAnchor[0]) * tight,
-    mBallast: 0, zBallast: 0, zFair: 0, L0: 0,
+    mBallast: 0, zBallast: 0, zFair: 0, L0: 0, rAnchor: 0,
     slender, tight,
   };
+  // The anchors walk in underneath the fairleads as the lines tighten, so a
+  // fully tight design ends up standing on vertical tendons rather than on
+  // lines that splay inwards.
+  P.rAnchor = DESIGN.rAnchor[0] + (P.s / 2 - DESIGN.rAnchor[0]) * tight;
   P.zBallast = 0.06 * P.Hc;
   P.zFair = 0.10 * P.Hc;
   const draft = bySlender(DESIGN.draftFrac) * P.Hc;
@@ -587,6 +686,53 @@ function shares(Cwp, Cbal, Cmoor) {
 }
 
 /**
+ * Mass matrix about the keel, carrying the surge-pitch coupling.
+ *
+ * Pitch here is rotation about the keel, not about the centre of gravity, so a
+ * horizontal push at the centre of gravity only comes out as pure surge if the
+ * coupling term m*KG is carried in the mass matrix. Faking it by shortening the
+ * lever arm instead gets the sign wrong for anything gripped low down.
+ */
+function massMatrix(P, res) {
+  const across = res.mass + res.added.A11;
+  const couple = res.mass * res.KG + res.added.A11 * (res.draft / 2);
+  return [
+    [across, 0, couple],
+    [0, res.mass + res.added.A33, 0],
+    [couple, 0, res.I0 + res.added.A55],
+  ];
+}
+
+/**
+ * Acceleration under the forces really acting, rather than a linearisation.
+ *
+ * This matters more than it sounds. A catenary is soft near rest and stiffens
+ * sharply as it lifts off the seabed - at 80 m of offset the true restoring
+ * force is nearly five times what a constant stiffness would give. Freeze the
+ * stiffness at zero offset and the platform slides out and stalls there instead
+ * of springing back, which is exactly the wrong lesson.
+ *
+ * The residual left at the equilibrium is subtracted, so a hull nobody is
+ * touching stays where it was put. Newton leaves a little behind, and without
+ * this it would wander across the tank on its own.
+ */
+function acceleration(P, res, x, v, Q) {
+  const f = forces(P, res.q[0] + x[0], res.q[1] + x[1], res.q[2] + x[2]);
+  const rhs = [
+    f.Fx - res.residual[0] + Q[0] - res.damp[0] * v[0],
+    f.Fz - res.residual[1] + Q[1] - res.damp[1] * v[1],
+    f.M - res.residual[2] + Q[2] - res.damp[2] * v[2],
+  ];
+  const a = solve3(massMatrix(P, res), rhs);
+  return a && a.every(isFinite) ? a : [0, 0, 0];
+}
+
+/** The lever a horizontal pull at a body point has about the keel. */
+function pullLever(xi, zeta, th) {
+  return -xi * Math.sin(th) + zeta * Math.cos(th);
+}
+
+/**
  * The shape of one line, for drawing: world points from fairlead to anchor.
  *
  * Measured from the lowest point of the curve, a catenary is
@@ -600,7 +746,7 @@ function linePoints(P, L, n) {
   const dir = L.xa > L.xf ? 1 : -1; // from fairlead toward anchor
   if (L.mode === 'taut' || !(h > 0) || !(P.w > 0)) return [[L.xf, L.zf], [L.xa, L.za]];
 
-  const cat = catenary(P.L0, P.w, X, h);
+  const cat = catenary(L.L || P.L0, P.w, X, h);
   if (!(cat.H > 0)) return [[L.xf, L.zf], [L.xf, L.za], [L.xa, L.za]];
 
   const u = P.w / cat.H;
@@ -633,8 +779,7 @@ function linePoints(P, L, n) {
 // seeing: no design sits in a corner exactly.
 const NX = 5;
 const NY = 5;
-const DAMPING = 0.05;   // fraction of critical, the same for every design
-const SPEEDUP = 3;      // real periods run to half a minute; nobody waits
+const SPEEDUP = 6;      // real periods run to minutes; nobody waits that out
 const PULL_GAIN = 6e4;  // newtons per pixel the pointer is dragged
 const PULL_MAX = 1.2e7;
 const ROTOR = 120;      // rotor radius drawn on the tower, m
@@ -702,28 +847,18 @@ function describe(res) {
   ];
 }
 
-/** Linear motion about the equilibrium, driven by whatever the pointer is doing. */
+/** Motion under the real forces, driven by whatever the pointer is doing. */
 function step(h) {
-  const m = current().res;
+  const { P, res: m } = current();
   if (!m) return;
-  const Mm = [m.mass + m.added.A11, m.mass + m.added.A33, m.I0 + m.added.A55];
-  const C = m.C;
-  const B = [0, 1, 2].map((i) => 2 * DAMPING * Math.sqrt(Math.max(0, Mm[i] * Math.max(0, C[i][i]))));
 
   // A horizontal pull at the height it was grabbed: straight into surge, and
-  // into pitch through its lever arm. This is the wind, made by hand.
-  const lever = state.grab ? state.grab.zeta - m.KG : 0;
+  // into pitch through its lever about the keel. This is the wind, made by hand.
+  const th = m.q[2] + state.x[2];
+  const lever = state.grab ? pullLever(state.grab.xi, state.grab.zeta, th) : 0;
   const Q = [state.pull, 0, state.pull * lever];
 
-  const accel = (x, v) => {
-    const a = [0, 0, 0];
-    for (let i = 0; i < 3; i++) {
-      let f = Q[i] - B[i] * v[i];
-      for (let j = 0; j < 3; j++) f -= C[i][j] * x[j];
-      a[i] = f / Mm[i];
-    }
-    return a;
-  };
+  const accel = (x, v) => acceleration(P, m, x, v, Q);
   const mix = (p, q, k) => [p[0] + k * q[0], p[1] + k * q[1], p[2] + k * q[2]];
 
   const a1 = accel(state.x, state.v);
@@ -739,7 +874,8 @@ function step(h) {
     state.v[i] += (h / 6) * (a1[i] + 2 * a2[i] + 2 * a3[i] + a4[i]);
   }
   // Nothing here is allowed to run away in front of a class.
-  if (!state.x.every(isFinite) || Math.abs(state.x[2]) > 1.2) rest();
+  const tooFar = Math.abs(state.x[0]) > 0.8 * P.rAnchor || Math.abs(state.x[2]) > 1.2;
+  if (!state.x.every(isFinite) || !state.v.every(isFinite) || tooFar) rest();
 }
 
 function rest() {
@@ -1004,6 +1140,7 @@ const CELLS = [
   ['sits this deep', (m, lean) => fmt(m.draft, 0, ' m'), () => false],
   ['leaning now', (m, lean) => fmt(lean, 1, '\u00b0'), (m, lean) => Math.abs(lean) > 8],
   ['rocks every', (m) => fmt(m.Tpitch, 0, ' s'), () => false],
+  ['off station', () => fmt(Math.abs(state.x[0]), 1, ' m'), () => Math.abs(state.x[0]) > 40],
   ['you are pulling', () => (state.grab ? fmt(Math.abs(state.pull) / 1e6, 1, ' MN') : '\u2014'),
     () => Math.abs(state.pull) > 4e6],
 ];
@@ -1096,9 +1233,12 @@ function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   acc += dt;
-  const H = 1 / 120;
+  // 60 Hz substeps: the stiffest motion here is a tension-leg platform heaving
+  // at about four seconds, so this is far inside what RK4 will hold, and the
+  // line solve inside every stage is the expensive part.
+  const H = 1 / 60;
   let guard = 0;
-  while (acc >= H && guard++ < 400) { step(H * SPEEDUP); acc -= H; }
+  while (acc >= H && guard++ < 200) { step(H * SPEEDUP); acc -= H; }
 
   try {
     drawTank();
@@ -1124,8 +1264,9 @@ $('foot').textContent =
   'Two circular columns treated as strips; lines solved as catenaries with seabed contact, or stretched once taut. '
   + 'Ballast is not a free choice - it is whatever floats the hull at the draft its shape implies. '
   + 'The pitch stiffness, found by differentiating the forces, agrees with the textbook rho g V GM to better than 0.01%. '
-  + 'Motion is linear about the upright position, damped at ' + (DAMPING * 100).toFixed(0) + '% of critical and shown at '
-  + SPEEDUP + ' times real speed. No waves.';
+  + 'The motion is stepped through the real forces rather than a linearisation, so a slack line stiffens as it lifts off the bed. '
+  + 'Damping is ' + (DAMP_RATIO[0] * 100).toFixed(0) + '% of critical in surge, where the lines drag, and '
+  + (DAMP_RATIO[2] * 100).toFixed(0) + '% elsewhere. Shown at ' + SPEEDUP + ' times real speed. No waves.';
 requestAnimationFrame(frame);
 
 </script>

@@ -69,6 +69,10 @@
     border-left: 3px solid var(--moor); padding: 2px 0 2px 11px;
     font-size: 0.86rem; color: var(--soft); margin: 0;
   }
+  .marks { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; font-size: 0.78rem; color: var(--soft); }
+  .key { display: inline-flex; align-items: center; gap: 6px; }
+  .key b { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
   .foot { font-size: 0.73rem; color: var(--muted); margin: 0; }
 
   #err {
@@ -97,7 +101,11 @@
         <h2>The tank</h2>
         <canvas id="tank" height="470"></canvas>
       </div>
-      <p class="hint" id="hint">Drag the nacelle sideways, as the wind would, and let go. Grab it low down instead and it hardly tips at all &mdash; same push, shorter lever. Watch how far off station each design drifts before it pushes back.</p>
+      <p class="marks">
+        <span class="key"><i class="dot" style="background:var(--bal)"></i><b>G</b> centre of gravity &mdash; weight pulls down here</span>
+        <span class="key"><i class="dot" style="background:var(--wp)"></i><b>B</b> centre of buoyancy &mdash; the water pushes up here</span>
+      </p>
+      <p class="hint" id="hint">Drag the <b>nacelle</b> &mdash; the box on top of the tower &mdash; sideways, as the wind would, and let go. That is where a rotor pushes. Grab the hull low down instead and it hardly tips at all: same push, shorter lever.</p>
     </div>
     <div class="col">
       <div class="card">
@@ -1016,14 +1024,63 @@ function drawTank() {
   g.lineWidth = 1.7;
   g.beginPath(); g.moveTo(V.X(tip[0]), V.Z(tip[1])); g.lineTo(V.X(toe[0]), V.Z(toe[1])); g.stroke();
 
-  // The nacelle: the handle, so it is drawn as something you would grab.
+  // The nacelle, drawn as the box it is rather than as an abstract dot: this is
+  // where the rotor's thrust acts on a real turbine, and it is where the hand
+  // takes hold, so it should look like a thing you could take hold of.
+  const nacelleW = Math.max(9, 22 * V.k);
+  const nacelleH = Math.max(5, 11 * V.k);
+  const th2 = m.q[2] + state.x[2];
+  g.save();
+  g.translate(V.X(hub[0]), V.Z(hub[1]));
+  g.rotate(th2);
   g.fillStyle = state.grab ? css('--hot') : css('--hull');
-  g.beginPath(); g.arc(V.X(hub[0]), V.Z(hub[1]), 6, 0, 2 * Math.PI); g.fill();
+  g.fillRect(-nacelleW * 0.35, -nacelleH / 2, nacelleW, nacelleH);
+  g.restore();
   if (!state.grab) {
+    // A faint ring says 'take hold here' without pretending to be structure.
     g.strokeStyle = css('--muted');
     g.lineWidth = 1;
-    g.beginPath(); g.arc(V.X(hub[0]), V.Z(hub[1]), 11, 0, 2 * Math.PI); g.stroke();
+    g.setLineDash([2, 3]);
+    g.beginPath();
+    g.arc(V.X(hub[0]), V.Z(hub[1]), Math.max(13, nacelleW * 0.95), 0, 2 * Math.PI);
+    g.stroke();
+    g.setLineDash([]);
   }
+
+  // Centre of gravity and centre of buoyancy: the whole stability argument in
+  // two dots. Weight pulls down through the green one, buoyancy pushes up
+  // through the blue one, and the platform is upright when they line up.
+  // B is not fixed in the hull. Lean the platform and the immersed side gains
+  // volume, so the centre of buoyancy slides that way; that sideways step is
+  // the righting moment itself, so it is drawn where it actually is rather
+  // than pinned to the centreline.
+  let vol = 0;
+  let volXi = 0;
+  let volZeta = 0;
+  for (const col of immersion(P, m.q[1] + state.x[1], th2)) {
+    const dv = colArea(P.D) * col.L;
+    vol += dv;
+    volXi += dv * col.xi;
+    volZeta += dv * (col.L / 2);
+  }
+  const bXi = vol > 0 ? volXi / vol : 0;
+  const bZeta = vol > 0 ? volZeta / vol : m.KB;
+
+  const marker = (xi, zeta, colour, label) => {
+    const pt = place(m, xi, zeta);
+    const px = V.X(pt[0]);
+    const py = V.Z(pt[1]);
+    g.fillStyle = colour;
+    g.beginPath(); g.arc(px, py, 5, 0, 2 * Math.PI); g.fill();
+    g.strokeStyle = css('--panel');
+    g.lineWidth = 1.6;
+    g.beginPath(); g.arc(px, py, 5, 0, 2 * Math.PI); g.stroke();
+    g.fillStyle = colour;
+    g.font = '11px "IBM Plex Mono", ui-monospace, monospace';
+    g.fillText(label, px + 8, py + 4);
+  };
+  marker(0, m.KG, css('--bal'), 'G');
+  marker(bXi, bZeta, css('--wp'), 'B');
 
   // While pulling: an arrow showing which way and how hard.
   if (state.grab && Math.abs(state.pull) > 1e4) {

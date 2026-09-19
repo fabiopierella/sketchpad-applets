@@ -34,6 +34,14 @@ without it the ballast corner is unreachable: a 40 m hull always has its centre
 of gravity above its centre of buoyancy, so `KB − KG` is negative and the spar
 corner is empty. A spar is 100 m deep, and that is *why* it works.
 
+**G and B are drawn, and B is drawn where it really is.** Weight pulls down
+through the green marker and buoyancy pushes up through the blue one, so a spar
+shows G below B and a semi-submersible shows it above - the argument for ballast
+stability, in two dots. B is recomputed from the immersed volume each frame
+rather than pinned to the hull, because heeling the platform moves it toward the
+immersed side, and that sideways step is the righting moment itself. Pinning it
+to the centreline would draw the picture while hiding the mechanism.
+
 **The ballast term is shown signed, not clamped.** For any semi-submersible it
 is negative — the high centre of gravity is a penalty being paid, not merely an
 unused mechanism. A ternary plot cannot show a negative share, so the triangle

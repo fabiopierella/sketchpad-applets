@@ -901,17 +901,53 @@ function choose(i) {
 /* ------------------------------------------------------------ rendering */
 
 const $ = (id) => document.getElementById(id);
-const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+// Theme colours are read from CSS so a theme flip repaints for free, but each
+// read resolves style, and the drawing asks for a couple of dozen per frame.
+// Cached for the frame and dropped at the top of the next one, which keeps the
+// free repaint and costs one resolution per colour instead of ten.
+let cssCache = Object.create(null);
+const css = (n) => {
+  let v = cssCache[n];
+  if (v === undefined) {
+    v = getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+    cssCache[n] = v;
+  }
+  return v;
+};
 const tankCv = $('tank');
 const triCv = $('tri');
+
+/**
+ * The height a canvas is meant to be drawn at, in CSS pixels.
+ *
+ * Read once and remembered, because `canvas.height` is a reflected attribute:
+ * assigning the property rewrites the attribute it was read from. Reading it
+ * back each frame therefore returns the already-scaled value and scales it
+ * again - on a display at one device pixel per CSS pixel that is harmless,
+ * since the factor is one, but at two the buffer doubles every frame and the
+ * browser kills the tab within a second. Which is exactly what it did: fine on
+ * a laptop, a flash and a crash on a phone.
+ */
+const designHeights = new WeakMap();
+function designHeight(cv) {
+  if (!designHeights.has(cv)) {
+    designHeights.set(cv, Number(cv.getAttribute('height')) || cv.clientHeight || 300);
+  }
+  return designHeights.get(cv);
+}
+
+const MAX_BUFFER = 4096; // belt and braces: never ask for a buffer this big
 
 function fit(cv) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = cv.clientWidth;
-  const h = cv.getAttribute('height') / 1;
-  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
-    cv.width = Math.round(w * dpr);
-    cv.height = Math.round(h * dpr);
+  const h = designHeight(cv);
+  const wantW = Math.min(MAX_BUFFER, Math.round(w * dpr));
+  const wantH = Math.min(MAX_BUFFER, Math.round(h * dpr));
+  if (cv.width !== wantW || cv.height !== wantH) {
+    cv.width = wantW;
+    cv.height = wantH;
   }
   const g = cv.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1232,7 +1268,7 @@ function localPoint(cv, ev) {
 
 triCv.addEventListener('pointerdown', (ev) => {
   const [px, py] = localPoint(triCv, ev);
-  const L = triLayout(triCv.clientWidth, triCv.getAttribute('height') / 1);
+  const L = triLayout(triCv.clientWidth, designHeight(triCv));
   let best = -1;
   let bestD = Infinity;
   grid.forEach((node, i) => {
@@ -1251,7 +1287,7 @@ tankCv.addEventListener('pointerdown', (ev) => {
   if (!m) return;
   const [px, py] = localPoint(tankCv, ev);
   const w = tankCv.clientWidth;
-  const h = tankCv.getAttribute('height') / 1;
+  const h = designHeight(tankCv);
   const V = tankView(w, h);
   const [xi, zeta] = unplace(m, V.iX(px), V.iZ(py));
   const span = current().P.s / 2 + current().P.D / 2;
@@ -1297,6 +1333,7 @@ function frame(now) {
   let guard = 0;
   while (acc >= H && guard++ < 200) { step(H * SPEEDUP); acc -= H; }
 
+  cssCache = Object.create(null);
   try {
     drawTank();
     drawTri();

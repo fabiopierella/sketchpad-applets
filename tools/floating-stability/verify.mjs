@@ -388,5 +388,25 @@ console.log('\nThe pull acts on the lever it is given:');
   pass(tipHigh > Math.abs(tipLow), 'and tips it much more than pulling at the keel does');
 }
 
+/* ----------------------------------- 10. the canvas cannot run away again */
+// Not physics, but the only fault that ever actually broke the applet for a
+// user: `canvas.height` is a reflected attribute, so assigning the property
+// rewrites the attribute it was read from. Reading it back each frame and
+// scaling it again is a no-op at one device pixel per CSS pixel and doubles
+// the buffer every frame at two - fine on a laptop, a flash and a crash on a
+// phone. The rule is that the attribute is read once and remembered.
+console.log('\nThe canvas sizing cannot feed back on itself:');
+{
+  const reads = html.match(/getAttribute\('height'\)/g) || [];
+  console.log(`  ${reads.length} read(s) of the height attribute in the whole file`);
+  pass(reads.length === 1, 'the height attribute is read in exactly one place');
+  pass(
+    /function designHeight\(cv\)[\s\S]{0,260}getAttribute\('height'\)/.test(html),
+    'and that place is designHeight, which remembers it',
+  );
+  pass(/designHeights\.has\(cv\)/.test(html), 'the remembered value is keyed per canvas');
+  pass(/MAX_BUFFER/.test(html), 'and the buffer is clamped besides');
+}
+
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} CHECK(S) FAILED.`);
 process.exit(failures === 0 ? 0 : 1);

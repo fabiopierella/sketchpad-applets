@@ -35,6 +35,7 @@ const F = {};
 for (const name of [
   'colArea', 'colInertia', 'totals', 'immersion', 'catenary', 'lineForce',
   'forces', 'equilibrium', 'stiffness', 'analyse', 'shares', 'linePoints', 'bisect',
+  'designFor', 'hubHeight',
 ]) {
   F[name] = eval(maths + '; ' + name);
 }
@@ -216,6 +217,50 @@ console.log('\nNatural periods of the base design:');
   pass(a.Tsurge > 40, 'surge is far below the wave band, as a catenary mooring makes it');
   pass(a.Theave > 12 && a.Theave < 40, 'heave sits above the wave band');
   pass(a.Tpitch > 12, 'pitch sits above the wave band');
+}
+
+/* ------------------------------ 8. every design on the grid is a real one */
+// The applet offers a grid of platforms rather than sliders, so every node has
+// to be something that floats, stands up and can be pulled on. A node that
+// failed would be a dead spot on the triangle with nothing to show.
+console.log('\nThe grid of designs offered on the triangle:');
+{
+  const NX = 5, NY = 5;
+  let worstMoor = 0, worstBal = 0, worstWp = 0;
+  let solved = 0;
+  const rows = [];
+  for (let j = 0; j < NY; j++) {
+    for (let i = 0; i < NX; i++) {
+      const slender = i / (NX - 1);
+      const tight = j / (NY - 1);
+      const a = F.analyse(F.designFor(slender, tight));
+      rows.push({ slender, tight, a });
+      if (a.ok) solved++;
+      pass(a.ok, `design (${slender.toFixed(2)}, ${tight.toFixed(2)}) settles somewhere`);
+      if (!a.ok) continue;
+      const fine = a.draft > 3 && a.C55 > 0 && isFinite(a.Tpitch) && a.Tpitch > 1 && a.mass > 0;
+      pass(fine, `design (${slender.toFixed(2)}, ${tight.toFixed(2)}) floats, stands up and has a pitch period`);
+      worstWp = Math.max(worstWp, a.shares[0]);
+      worstBal = Math.max(worstBal, a.shares[1]);
+      worstMoor = Math.max(worstMoor, a.shares[2]);
+    }
+  }
+  console.log(`  ${solved} of ${NX * NY} solved; best waterplane ${(worstWp * 100).toFixed(0)}%, best ballast ${(worstBal * 100).toFixed(0)}%, best mooring ${(worstMoor * 100).toFixed(0)}%`);
+  pass(worstWp > 0.85, 'one corner of the grid is a genuine semi-submersible');
+  pass(worstBal > 0.85, 'another is a genuine spar');
+  pass(worstMoor > 0.7, 'another is a genuine tension-leg platform');
+
+  // Ballast is derived, never chosen, so Archimedes has to come out right at
+  // every node once the lines are taken away.
+  let worstArch = 0;
+  for (const { slender, tight } of rows) {
+    const P = F.designFor(slender, tight);
+    const { q } = F.equilibrium(P, null, HYDRO);
+    const f = F.forces(P, q[0], q[1], q[2], HYDRO);
+    worstArch = Math.max(worstArch, rel(RHO * f.vol, F.totals(P).mass));
+  }
+  console.log(`  worst departure from displaced mass = total mass: ${worstArch.toExponential(1)}`);
+  pass(worstArch < 1e-9, 'every design on the grid floats where Archimedes says');
 }
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} CHECK(S) FAILED.`);

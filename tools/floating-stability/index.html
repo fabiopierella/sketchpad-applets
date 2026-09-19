@@ -5,182 +5,105 @@
     --soft: #56564f;    --muted: #8a8a80;   --rule: #dedcd4;
     --wp: #2c5aa0;      --bal: #2f6f4f;     --moor: #c0722b;
     --hot: #c0392b;     --hull: #33332e;    --sea: #cfe0ea;
+    --bed: #d8d2c4;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #171815;    --panel: #1f201d;   --ink: #ecebe3;
       --soft: #b4b3aa;  --muted: #85847b;   --rule: #33342e;
       --wp: #7ba3d8;    --bal: #6fb891;     --moor: #dda15e;
-      --hot: #e0806e;   --hull: #d6d5cc;    --sea: #24333d;
+      --hot: #e0806e;   --hull: #d6d5cc;    --sea: #22303a;
+      --bed: #2c2a24;
     }
   }
   :root[data-theme="dark"] {
     --bg: #171815;      --panel: #1f201d;   --ink: #ecebe3;
     --soft: #b4b3aa;    --muted: #85847b;   --rule: #33342e;
     --wp: #7ba3d8;      --bal: #6fb891;     --moor: #dda15e;
-    --hot: #e0806e;     --hull: #d6d5cc;    --sea: #24333d;
+    --hot: #e0806e;     --hull: #d6d5cc;    --sea: #22303a;
+    --bed: #2c2a24;
   }
 
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 14px 14px 32px;
+    margin: 0; padding: 14px 14px 28px;
     background: var(--bg); color: var(--ink);
     font-family: "Helvetica Neue", system-ui, sans-serif;
     font-size: 15px; line-height: 1.45;
     -webkit-text-size-adjust: 100%;
   }
-  .wrap { max-width: 64rem; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
-  header h1 { font-size: 1.25rem; margin: 0; letter-spacing: -0.01em; }
-  header p { margin: 3px 0 0; color: var(--soft); font-size: 0.86rem; }
+  .wrap { max-width: 68rem; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+  header h1 { font-size: 1.22rem; margin: 0; letter-spacing: -0.01em; }
+  header p { margin: 3px 0 0; color: var(--soft); font-size: 0.87rem; }
 
-  .nums { display: flex; flex-wrap: wrap; gap: 6px; }
-  .num {
-    display: flex; flex-direction: column; gap: 1px;
-    padding: 5px 10px; border: 1px solid var(--rule); border-radius: 7px;
-    background: var(--panel); min-width: 84px;
-  }
-  .num b {
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-    font-size: 0.92rem; font-weight: 600; font-variant-numeric: tabular-nums;
-  }
-  .num span { font-size: 0.66rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-  .num.warn b { color: var(--hot); }
-
-  .stage { display: grid; grid-template-columns: 1.1fr 1fr; gap: 12px; align-items: start; }
+  .stage { display: grid; grid-template-columns: 1.25fr 1fr; gap: 12px; align-items: start; }
   .col { display: flex; flex-direction: column; gap: 12px; }
-  .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 9px; padding: 8px 10px 4px; }
+  .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 9px; padding: 8px 10px 5px; }
   .card h2 {
     font-size: 0.66rem; font-weight: 600; margin: 0 0 4px;
     text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted);
   }
-  canvas { display: block; width: 100%; touch-action: manipulation; }
+  canvas { display: block; width: 100%; touch-action: none; }
+  #tank { cursor: grab; }
+  #tank.pulling { cursor: grabbing; }
+  #tri { cursor: pointer; }
 
-  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 10px 18px; }
-  .ctl { display: flex; flex-direction: column; gap: 2px; }
-  .ctl .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-  .ctl label { font-size: 0.82rem; color: var(--soft); }
-  .ctl output {
+  #name { font-size: 1.02rem; font-weight: 600; margin: 0 0 3px; }
+  #blurb { margin: 0; font-size: 0.86rem; color: var(--soft); }
+
+  .nums { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+  .num {
+    display: flex; flex-direction: column; gap: 1px;
+    padding: 4px 9px; border: 1px solid var(--rule); border-radius: 7px; min-width: 76px;
+  }
+  .num b {
     font-family: "IBM Plex Mono", ui-monospace, monospace;
-    font-size: 0.78rem; font-variant-numeric: tabular-nums; color: var(--ink);
+    font-size: 0.9rem; font-weight: 600; font-variant-numeric: tabular-nums;
   }
-  input[type=range] { width: 100%; accent-color: var(--wp); height: 26px; }
+  .num span { font-size: 0.63rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .num.warn b { color: var(--hot); }
 
-  .buttons { display: flex; flex-wrap: wrap; gap: 6px; }
-  button {
-    font: inherit; font-size: 0.84rem; min-height: 38px; padding: 0 13px;
-    border: 1px solid var(--rule); border-radius: 7px;
-    background: var(--panel); color: var(--ink); cursor: pointer;
-  }
-  button.on { background: var(--wp); border-color: var(--wp); color: #fff; }
-  button:focus-visible { outline: 2px solid var(--wp); outline-offset: 2px; }
-
-  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.74rem; color: var(--soft); }
-  .key { display: inline-flex; align-items: center; gap: 5px; }
-  .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
-
-  .try {
+  .hint {
     border-left: 3px solid var(--moor); padding: 2px 0 2px 11px;
-    font-size: 0.86rem; color: var(--soft);
+    font-size: 0.86rem; color: var(--soft); margin: 0;
   }
-  .foot { font-size: 0.74rem; color: var(--muted); }
+  .foot { font-size: 0.73rem; color: var(--muted); margin: 0; }
 
-  @media (max-width: 680px) { .stage { grid-template-columns: 1fr; } }
+  @media (max-width: 720px) { .stage { grid-template-columns: 1fr; } }
 </style>
 
 <div class="wrap">
   <header>
-    <h1>Floating Platform Stability</h1>
-    <p>Three ways to keep a floating turbine upright &mdash; ballast, waterplane, mooring. Move the sliders and watch which one is doing the work.</p>
+    <h1>What keeps a floating turbine upright?</h1>
+    <p>There are only three answers, and every real platform is a mixture of them. Pick a mixture on the triangle; then grab the turbine and pull.</p>
   </header>
-
-  <div class="nums" id="nums"></div>
 
   <div class="stage">
     <div class="col">
       <div class="card">
-        <h2>Platform</h2>
-        <canvas id="hull" height="430"></canvas>
+        <h2>The tank</h2>
+        <canvas id="tank" height="470"></canvas>
       </div>
-      <div class="card">
-        <h2>Mooring layout</h2>
-        <canvas id="moor" height="215"></canvas>
-      </div>
+      <p class="hint" id="hint">Drag the nacelle sideways, as the wind would, and let go. Grab it low down instead and it hardly tips at all &mdash; same push, shorter lever.</p>
     </div>
     <div class="col">
       <div class="card">
-        <h2>Stability triangle</h2>
-        <canvas id="tri" height="330"></canvas>
+        <h2>Pick a platform</h2>
+        <canvas id="tri" height="320"></canvas>
       </div>
       <div class="card">
-        <h2>Free decay</h2>
-        <canvas id="decay" height="165"></canvas>
+        <p id="name"></p>
+        <p id="blurb"></p>
+        <div class="nums" id="nums"></div>
       </div>
     </div>
   </div>
 
-  <div class="legend">
-    <span class="key"><i class="sw" style="background:var(--wp)"></i>waterplane</span>
-    <span class="key"><i class="sw" style="background:var(--bal)"></i>ballast</span>
-    <span class="key"><i class="sw" style="background:var(--moor)"></i>mooring</span>
-  </div>
-
-  <div class="controls">
-    <div class="ctl">
-      <div class="row"><label for="hdep">Hull depth</label><output id="hdepOut"></output></div>
-      <input type="range" id="hdep" min="25" max="140" step="1" value="40">
-    </div>
-    <div class="ctl">
-      <div class="row"><label for="diam">Column diameter</label><output id="diamOut"></output></div>
-      <input type="range" id="diam" min="8" max="34" step="1" value="22">
-    </div>
-    <div class="ctl">
-      <div class="row"><label for="spac">Column spacing</label><output id="spacOut"></output></div>
-      <input type="range" id="spac" min="10" max="130" step="1" value="52">
-    </div>
-    <div class="ctl">
-      <div class="row"><label for="mbal">Ballast mass</label><output id="mbalOut"></output></div>
-      <input type="range" id="mbal" min="0" max="300" step="1" value="120">
-    </div>
-    <div class="ctl">
-      <div class="row"><label for="zbal">Ballast height</label><output id="zbalOut"></output></div>
-      <input type="range" id="zbal" min="1" max="100" step="1" value="15">
-    </div>
-    <div class="ctl">
-      <div class="row"><label for="anch">Anchor radius</label><output id="anchOut"></output></div>
-      <input type="range" id="anch" min="5" max="1200" step="5" value="800">
-    </div>
-    <div class="ctl">
-      <div class="row"><label for="llen">Line length</label><output id="llenOut"></output></div>
-      <input type="range" id="llen" min="150" max="1600" step="5" value="850">
-    </div>
-    <div class="ctl">
-      <div class="row"><label for="lwt">Line weight</label><output id="lwtOut"></output></div>
-      <input type="range" id="lwt" min="1" max="500" step="1" value="180">
-    </div>
-    <div class="ctl">
-      <div class="row"><label for="thr">Wind thrust</label><output id="thrOut"></output></div>
-      <input type="range" id="thr" min="0" max="500" step="5" value="240">
-    </div>
-    <div class="ctl">
-      <div class="row"><label for="damp">Damping</label><output id="dampOut"></output></div>
-      <input type="range" id="damp" min="1" max="200" step="1" value="50">
-    </div>
-  </div>
-
-  <div class="buttons">
-    <button id="pSpar">Spar</button>
-    <button id="pSemi">Semi-sub</button>
-    <button id="pTlp">TLP</button>
-    <button id="pluckP">Pluck pitch</button>
-    <button id="pluckS">Pluck surge</button>
-    <button id="stop">Still</button>
-  </div>
-
-  <p class="try" id="try"><b>Try this.</b> Start from Semi-sub and drag the ballast up. Watch the green share shrink, go negative, and the platform start to lean under the same thrust &mdash; a high centre of gravity does not merely fail to help, it costs you.</p>
   <p class="foot" id="foot"></p>
 </div>
 
 <script>
+
 /* ------------------------------------------------------------------ maths
  * A floating wind platform in two dimensions: surge, heave and pitch.
  *
@@ -560,6 +483,73 @@ function analyse(P, guess) {
   };
 }
 
+/**
+ * A whole floater from two numbers.
+ *
+ * `slender` runs from a wide shallow hull to a deep narrow one - a barge at
+ * one end, a spar at the other. `tight` runs from long heavy lines lying on
+ * the seabed to short ones stretched straight down. Everything else follows:
+ *
+ *   ballast    is not a choice. It is whatever makes the hull float at the
+ *              draft its shape is meant to have.
+ *   line length is a multiple of the straight run to the anchor. Longer than
+ *              the run and it hangs in a curve; shorter and it is stretched,
+ *              pulling the hull down onto its own buoyancy.
+ *
+ * Two numbers in, one design out, so a point on the stability triangle can be
+ * a place you click rather than a set of sliders to balance.
+ */
+const DESIGN = {
+  depth: 150, mTop: 2.25e6, w: 1800, Ca11: 1.0, Ca33: 3.0,
+  Hc: [38, 130],           // hull depth, m
+  D: [25, 13],             // column diameter, m
+  s: [64, 15],             // column spacing, m
+  draftFrac: [0.66, 0.80],
+  rAnchor: [420, 14],      // anchor distance from the centreline, m
+  SLACK_LIMIT: 0.25,       // the part of `tight` spent going from slack to just taut
+  slackLoose: 1.06,        // line length as a multiple of the run, at the slack end
+  slackJustTaut: 0.998,    // ... where it first comes tight
+  slackTaut: 0.985,        // ... and fully stretched
+  EAloose: 1.2e8,          // polyester rope
+  EAtaut: 2.2e9,           // steel tendons
+  EAcurve: 2.5,            // stiff line arrives late: only a tendon is steel
+};
+
+function designFor(slender, tight) {
+  const bySlender = (r) => r[0] + (r[1] - r[0]) * slender;
+  // A line only starts resisting heel once it is stretched rather than hanging,
+  // so most of this axis is spent in the taut regime; the slack end covers the
+  // last of the curve lifting off the seabed.
+  const taut = Math.max(0, (tight - DESIGN.SLACK_LIMIT) / (1 - DESIGN.SLACK_LIMIT));
+  // Never exactly its own length: a line at zero tension has no stiffness at
+  // all, and a design sitting on that knife edge has no natural periods.
+  const slack = tight < DESIGN.SLACK_LIMIT
+    ? DESIGN.slackLoose + (DESIGN.slackJustTaut - DESIGN.slackLoose) * (tight / DESIGN.SLACK_LIMIT)
+    : DESIGN.slackJustTaut + (DESIGN.slackTaut - DESIGN.slackJustTaut) * taut;
+
+  const P = {
+    Hc: bySlender(DESIGN.Hc),
+    // A platform hanging on tendons does not need spread columns, and real ones
+    // are compact. Without this the mooring can never be the dominant term.
+    D: bySlender(DESIGN.D) * (1 - 0.30 * taut),
+    s: bySlender(DESIGN.s) * (1 - 0.55 * taut),
+    depth: DESIGN.depth, mTop: DESIGN.mTop, w: DESIGN.w,
+    EA: DESIGN.EAloose + (DESIGN.EAtaut - DESIGN.EAloose) * Math.pow(taut, DESIGN.EAcurve),
+    Ca11: DESIGN.Ca11, Ca33: DESIGN.Ca33, thrust: 0,
+    rAnchor: DESIGN.rAnchor[0] + (DESIGN.rAnchor[1] - DESIGN.rAnchor[0]) * tight,
+    mBallast: 0, zBallast: 0, zFair: 0, L0: 0,
+    slender, tight,
+  };
+  P.zBallast = 0.06 * P.Hc;
+  P.zFair = 0.10 * P.Hc;
+  const draft = bySlender(DESIGN.draftFrac) * P.Hc;
+  P.mBallast = Math.max(0, RHO * 2 * colArea(P.D) * draft - totals(P).mass);
+  // Measured from the fairlead, which is out on the column, not from the
+  // centreline - otherwise every line comes out too long and stays slack.
+  P.L0 = slack * Math.hypot(Math.abs(P.rAnchor - P.s / 2), P.depth - draft + P.zFair);
+  return P;
+}
+
 /** Fractions for the triangle. Only the terms that actually help are plotted. */
 function shares(Cwp, Cbal, Cmoor) {
   const p = [Math.max(0, Cwp), Math.max(0, Cbal), Math.max(0, Cmoor)];
@@ -607,115 +597,140 @@ function linePoints(P, L, n) {
 
 /* --------------------------------------------------------------- state */
 
-const P = {
-  D: 22, s: 52, Hc: 40,
-  mBallast: 12.0e6, zBallast: 6,
-  mTop: 2.25e6, thrust: 2.4e6,
-  zFair: 5,
-  rAnchor: 800, depth: 200,
-  L0: 850, w: 1800, EA: 1.5e9,
-  Ca11: 1.0, Ca33: 3.0,
-};
+// A grid of designs rather than a set of sliders. Each node is a real platform
+// - the whole thing follows from two numbers - and it is drawn on the triangle
+// wherever it genuinely lands, not where we would like it to be. The mesh is
+// therefore the shape of what is actually buildable, which is itself worth
+// seeing: no design sits in a corner exactly.
+const NX = 5;
+const NY = 5;
+const DAMPING = 0.05;   // fraction of critical, the same for every design
+const SPEEDUP = 3;      // real periods run to half a minute; nobody waits
+const PULL_GAIN = 6e4;  // newtons per pixel the pointer is dragged
+const PULL_MAX = 1.2e7;
+const ROTOR = 120;      // rotor radius drawn on the tower, m
+const RHO_BALLAST = 2500;
 
-const TRACE = 340;
-const ROTOR = 120;          // rotor radius drawn on the tower, m
-const RHO_BALLAST = 2500;   // dense fill, kg/m^3, used only for drawing the slab
+const grid = [];        // { slender, tight, P, res }
 const state = {
-  zeta: 0.05,
-  res: null,          // the last analysis that worked
-  moving: false,
-  x: [0, 0, 0],       // deviation from equilibrium: surge, heave, pitch
+  pick: 0,
+  x: [0, 0, 0],         // deviation from equilibrium: surge, heave, pitch
   v: [0, 0, 0],
+  grab: null,           // { zeta, xi, px, py } while the pointer holds the hull
+  pull: 0,              // horizontal force the pointer is applying, N
 };
-const tracePitch = [];
-const traceSurge = [];
 
-/**
- * Re-solve after a slider moves.
- *
- * The previous equilibrium seeds the next one, so dragging a slider walks the
- * solution rather than restarting it, and a configuration that fails to solve
- * leaves the last good one on screen. Nothing here is allowed to throw: this is
- * meant to survive being dragged around in front of a class.
- */
-function recompute() {
-  let next = null;
-  try {
-    next = analyse(P, state.res ? state.res.q : null);
-  } catch (err) {
-    next = null;
+function build() {
+  for (let j = 0; j < NY; j++) {
+    for (let i = 0; i < NX; i++) {
+      const slender = i / (NX - 1);
+      const tight = j / (NY - 1);
+      const P = designFor(slender, tight);
+      let res = null;
+      try { res = analyse(P); } catch (err) { res = null; }
+      grid.push({ slender, tight, P, res });
+    }
   }
-  if (next && next.ok && isFinite(next.C55) && next.vol > 0) state.res = next;
-  renderNums();
 }
 
-/** Linear free decay about the equilibrium, integrated with RK4. */
+const current = () => grid[state.pick];
+
+/**
+ * A name and a plain sentence for whatever mixture has been picked.
+ *
+ * Deliberately not jargon: the audience for this has two hours and is not
+ * necessarily an engineer. The archetype names are the ones they will meet
+ * again in the literature, so those are worth using; everything else is not.
+ */
+function describe(res) {
+  const [wp, bal, moor] = res.shares;
+  const parts = [
+    { k: 'wp', v: wp, name: 'waterplane' },
+    { k: 'bal', v: bal, name: 'ballast' },
+    { k: 'moor', v: moor, name: 'mooring' },
+  ].sort((a, b) => b.v - a.v);
+  const lead = parts[0];
+
+  const pure = {
+    wp: ['Semi-submersible',
+      'Wide columns, set far apart, floating shallow. It stays level the way a raft does: push one side down and that side pushes straight back.'],
+    bal: ['Spar',
+      'A deep, narrow cylinder with its ballast in the very bottom. It works like a fishing float - the weight hangs far below the buoyancy, so it always swings upright.'],
+    moor: ['Tension-leg platform',
+      'Too buoyant to float where it does. Tendons stretched tight to the seabed hold it down, and it cannot lean without stretching them further. Very stiff, but it must never go slack.'],
+  };
+  const blend = {
+    wp: 'broad columns',
+    bal: 'deep ballast',
+    moor: 'tight moorings',
+  };
+
+  if (lead.v > 0.72) return pure[lead.k];
+  return [
+    'Mostly ' + lead.name + ', partly ' + parts[1].name,
+    'A mixture: it leans on its ' + blend[lead.k] + ' first and its ' + blend[parts[1].k] +
+      ' second. Most platforms actually built are somewhere in here rather than at a corner.',
+  ];
+}
+
+/** Linear motion about the equilibrium, driven by whatever the pointer is doing. */
 function step(h) {
-  const m = state.res;
-  if (!m || !state.moving) return;
+  const m = current().res;
+  if (!m) return;
   const Mm = [m.mass + m.added.A11, m.mass + m.added.A33, m.I0 + m.added.A55];
-  const B = [0, 1, 2].map((i) => 2 * state.zeta * Math.sqrt(Math.max(0, Mm[i] * Math.max(0, m.C[i][i]))));
+  const C = m.C;
+  const B = [0, 1, 2].map((i) => 2 * DAMPING * Math.sqrt(Math.max(0, Mm[i] * Math.max(0, C[i][i]))));
+
+  // A horizontal pull at the height it was grabbed: straight into surge, and
+  // into pitch through its lever arm. This is the wind, made by hand.
+  const lever = state.grab ? state.grab.zeta - m.KG : 0;
+  const Q = [state.pull, 0, state.pull * lever];
 
   const accel = (x, v) => {
     const a = [0, 0, 0];
     for (let i = 0; i < 3; i++) {
-      let f = -B[i] * v[i];
-      for (let j = 0; j < 3; j++) f -= m.C[i][j] * x[j];
+      let f = Q[i] - B[i] * v[i];
+      for (let j = 0; j < 3; j++) f -= C[i][j] * x[j];
       a[i] = f / Mm[i];
     }
     return a;
   };
-  const add = (p, q, k) => [p[0] + k * q[0], p[1] + k * q[1], p[2] + k * q[2]];
+  const mix = (p, q, k) => [p[0] + k * q[0], p[1] + k * q[1], p[2] + k * q[2]];
 
   const a1 = accel(state.x, state.v);
-  const x2 = add(state.x, state.v, h / 2), v2 = add(state.v, a1, h / 2);
+  const x2 = mix(state.x, state.v, h / 2), v2 = mix(state.v, a1, h / 2);
   const a2 = accel(x2, v2);
-  const x3 = add(state.x, v2, h / 2), v3 = add(state.v, a2, h / 2);
+  const x3 = mix(state.x, v2, h / 2), v3 = mix(state.v, a2, h / 2);
   const a3 = accel(x3, v3);
-  const x4 = add(state.x, v3, h), v4 = add(state.v, a3, h);
+  const x4 = mix(state.x, v3, h), v4 = mix(state.v, a3, h);
   const a4 = accel(x4, v4);
 
   for (let i = 0; i < 3; i++) {
     state.x[i] += (h / 6) * (state.v[i] + 2 * v2[i] + 2 * v3[i] + v4[i]);
     state.v[i] += (h / 6) * (a1[i] + 2 * a2[i] + 2 * a3[i] + a4[i]);
   }
-  if (!state.x.every(isFinite)) stopMotion();
+  // Nothing here is allowed to run away in front of a class.
+  if (!state.x.every(isFinite) || Math.abs(state.x[2]) > 1.2) rest();
 }
 
-function pushTraces() {
-  tracePitch.push((state.x[2] * 180) / Math.PI);
-  traceSurge.push(state.x[0]);
-  if (tracePitch.length > TRACE) { tracePitch.shift(); traceSurge.shift(); }
-}
-
-function pluck(which) {
-  if (!state.res) return;
+function rest() {
   state.x = [0, 0, 0];
   state.v = [0, 0, 0];
-  if (which === 'pitch') state.x[2] = 0.09;
-  else state.x[0] = 12;
-  state.moving = true;
-  syncMotion();
 }
 
-function stopMotion() {
-  state.moving = false;
-  state.x = [0, 0, 0];
-  state.v = [0, 0, 0];
-  tracePitch.length = 0;
-  traceSurge.length = 0;
-  syncMotion();
+function choose(i) {
+  if (i === state.pick || !grid[i] || !grid[i].res) return;
+  state.pick = i;
+  rest();
+  renderPanel();
 }
 
 /* ------------------------------------------------------------ rendering */
 
 const $ = (id) => document.getElementById(id);
 const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-
-const hullCv = $('hull');
-const moorCv = $('moor');
+const tankCv = $('tank');
 const triCv = $('tri');
-const decayCv = $('decay');
 
 function fit(cv) {
   const dpr = window.devicePixelRatio || 1;
@@ -731,12 +746,7 @@ function fit(cv) {
   return { g, w, h };
 }
 
-/**
- * A view that maps world metres to the canvas at one scale for both axes.
- *
- * Distorting the vertical would make a catenary the wrong shape, and the shape
- * is half of what the mooring picture is for.
- */
+/** One scale for both axes: a distorted catenary is a lie about its shape. */
 function view(w, h, x0, x1, z0, z1, pad) {
   const k = Math.min((w - 2 * pad) / Math.max(1e-6, x1 - x0), (h - 2 * pad) / Math.max(1e-6, z1 - z0));
   const cx = (x0 + x1) / 2;
@@ -745,10 +755,18 @@ function view(w, h, x0, x1, z0, z1, pad) {
     k,
     X: (x) => w / 2 + (x - cx) * k,
     Z: (z) => h / 2 - (z - cz) * k,
+    iX: (px) => cx + (px - w / 2) / k,
+    iZ: (py) => cz - (py - h / 2) / k,
   };
 }
 
-/** Where a body point sits in the world, including the motion of the moment. */
+/** The frame is fixed by the design, not by where the platform happens to be. */
+function tankView(w, h) {
+  const { P, res } = current();
+  const half = Math.max(P.rAnchor, P.s / 2 + P.D) + 25;
+  return view(w, h, -half, half, -P.depth - 10, hubHeight(P) - res.draft + ROTOR + 12, 8);
+}
+
 function place(m, xi, zeta) {
   const th = m.q[2] + state.x[2];
   const sn = Math.sin(th), cs = Math.cos(th);
@@ -758,41 +776,53 @@ function place(m, xi, zeta) {
   ];
 }
 
-function poly(g, pts, V) {
-  g.beginPath();
-  pts.forEach(([x, z], i) => (i ? g.lineTo(V.X(x), V.Z(z)) : g.moveTo(V.X(x), V.Z(z))));
-}
-
-/** Sea above the waterline, drawn behind everything. */
-function drawSea(g, w, h, V, bedZ) {
-  const y = V.Z(0);
-  g.fillStyle = css('--sea');
-  g.fillRect(0, y, w, h - y);
-  g.strokeStyle = css('--rule');
-  g.lineWidth = 1.2;
-  g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
-  if (bedZ !== null) {
-    const b = V.Z(bedZ);
-    g.strokeStyle = css('--muted');
-    g.beginPath(); g.moveTo(0, b); g.lineTo(w, b); g.stroke();
-  }
-}
-
-function drawHull() {
-  const { g, w, h } = fit(hullCv);
-  const m = state.res;
-  if (!m) return;
-  const top = hubHeight(P);
-  const half = P.s / 2 + P.D / 2;
-  const V = view(w, h, -half - 8, half + 8, -m.draft - 14, top + ROTOR + 6, 10);
-  drawSea(g, w, h, V, null);
-
+/** Body coordinates of a world point, so a click can be turned into a grip. */
+function unplace(m, x, z) {
   const th = m.q[2] + state.x[2];
   const sn = Math.sin(th), cs = Math.cos(th);
-  // A body-fixed rectangle, drawn as its four rotated corners.
+  const dx = x - (m.q[0] + state.x[0]);
+  const dz = z - (m.q[1] + state.x[1]);
+  return [dx * cs - dz * sn, dx * sn + dz * cs];
+}
+
+function drawTank() {
+  const { g, w, h } = fit(tankCv);
+  const { P, res: m } = current();
+  if (!m) return;
+  const V = tankView(w, h);
+
+  // Water, then the bed, then everything in it.
+  const surf = V.Z(0);
+  const bed = V.Z(-P.depth);
+  g.fillStyle = css('--sea');
+  g.fillRect(0, surf, w, Math.max(0, bed - surf));
+  g.fillStyle = css('--bed');
+  g.fillRect(0, bed, w, Math.max(0, h - bed));
+  g.strokeStyle = css('--rule');
+  g.lineWidth = 1.3;
+  g.beginPath(); g.moveTo(0, surf); g.lineTo(w, surf); g.stroke();
+
+  // Mooring lines and their anchors.
+  g.strokeStyle = css('--moor');
+  g.lineWidth = 1.7;
+  for (const L of m.lines) {
+    const f = place(m, L.xi, L.zeta);
+    const pts = linePoints(P, Object.assign({}, L, { xf: f[0], zf: f[1] }), 80);
+    g.beginPath();
+    pts.forEach(([x, z], i) => (i ? g.lineTo(V.X(x), V.Z(z)) : g.moveTo(V.X(x), V.Z(z))));
+    g.stroke();
+    g.fillStyle = css('--moor');
+    g.beginPath();
+    g.moveTo(V.X(L.xa), V.Z(L.za) - 5);
+    g.lineTo(V.X(L.xa) - 6, V.Z(L.za) + 4);
+    g.lineTo(V.X(L.xa) + 6, V.Z(L.za) + 4);
+    g.closePath(); g.fill();
+  }
+
   const box = (xi0, xi1, z0, z1, fill, alpha) => {
     const pts = [[xi0, z0], [xi1, z0], [xi1, z1], [xi0, z1]].map(([a, b]) => place(m, a, b));
-    poly(g, pts, V);
+    g.beginPath();
+    pts.forEach(([x, z], i) => (i ? g.lineTo(V.X(x), V.Z(z)) : g.moveTo(V.X(x), V.Z(z))));
     g.closePath();
     g.globalAlpha = alpha === undefined ? 1 : alpha;
     g.fillStyle = fill;
@@ -802,278 +832,232 @@ function drawHull() {
 
   for (const sgn of [-1, 1]) {
     const c = (sgn * P.s) / 2;
-    box(c - P.D / 2, c + P.D / 2, 0, P.Hc, css('--hull'), 0.85);
+    box(c - P.D / 2, c + P.D / 2, 0, P.Hc, css('--hull'), 0.9);
   }
-  // Pontoon between the columns, and the ballast sitting in it.
-  box(-P.s / 2, P.s / 2, 0, 0.12 * P.Hc, css('--hull'), 0.85);
+  box(-P.s / 2, P.s / 2, 0, 0.12 * P.Hc, css('--hull'), 0.9);
   if (P.mBallast > 0) {
-    // Drawn at the volume it would really occupy, as a slab of dense fill
-    // across the footprint - so a heavier ballast is visibly a deeper layer.
-    const t = Math.min(P.Hc * 0.8, P.mBallast / (RHO_BALLAST * Math.max(1, P.s) * Math.max(1, P.D)));
-    box(-P.s / 2, P.s / 2, P.zBallast - t / 2, P.zBallast + t / 2, css('--bal'), 0.95);
+    const t = Math.min(P.Hc * 0.7, P.mBallast / (RHO_BALLAST * Math.max(1, P.s) * Math.max(1, P.D)));
+    box(-P.s / 2, P.s / 2, Math.max(0, P.zBallast - t / 2), P.zBallast + t / 2, css('--bal'), 0.95);
   }
-  // Tower, tapering, then the rotor as a simple disc edge-on.
-  const towerBase = place(m, 0, P.Hc);
+
+  const top = hubHeight(P);
+  const base = place(m, 0, P.Hc);
   const hub = place(m, 0, top);
   g.strokeStyle = css('--hull');
-  g.lineWidth = Math.max(1.5, 3.2 * V.k);
-  g.beginPath(); g.moveTo(V.X(towerBase[0]), V.Z(towerBase[1])); g.lineTo(V.X(hub[0]), V.Z(hub[1])); g.stroke();
-  const rTip = place(m, 0, top + ROTOR);
-  const rBot = place(m, 0, top - ROTOR);
-  g.lineWidth = Math.max(1, 1.6);
-  g.beginPath(); g.moveTo(V.X(rTip[0]), V.Z(rTip[1])); g.lineTo(V.X(rBot[0]), V.Z(rBot[1])); g.stroke();
+  g.lineWidth = Math.max(1.6, 3.4 * V.k);
+  g.beginPath(); g.moveTo(V.X(base[0]), V.Z(base[1])); g.lineTo(V.X(hub[0]), V.Z(hub[1])); g.stroke();
+  const tip = place(m, 0, top + ROTOR);
+  const toe = place(m, 0, top - ROTOR);
+  g.lineWidth = 1.7;
+  g.beginPath(); g.moveTo(V.X(tip[0]), V.Z(tip[1])); g.lineTo(V.X(toe[0]), V.Z(toe[1])); g.stroke();
 
-  // Centres of gravity and buoyancy: the whole ballast argument in two dots.
-  const dot = (pt, colour, label) => {
-    g.fillStyle = colour;
-    g.beginPath(); g.arc(V.X(pt[0]), V.Z(pt[1]), 4, 0, 2 * Math.PI); g.fill();
-    g.fillStyle = css('--muted');
-    g.font = '11px "IBM Plex Mono", ui-monospace, monospace';
-    g.fillText(label, V.X(pt[0]) + 7, V.Z(pt[1]) + 4);
-  };
-  dot(place(m, 0, m.KG), css('--bal'), 'G');
-  dot(place(m, 0, m.KB), css('--wp'), 'B');
+  // The nacelle: the handle, so it is drawn as something you would grab.
+  g.fillStyle = state.grab ? css('--hot') : css('--hull');
+  g.beginPath(); g.arc(V.X(hub[0]), V.Z(hub[1]), 6, 0, 2 * Math.PI); g.fill();
+  if (!state.grab) {
+    g.strokeStyle = css('--muted');
+    g.lineWidth = 1;
+    g.beginPath(); g.arc(V.X(hub[0]), V.Z(hub[1]), 11, 0, 2 * Math.PI); g.stroke();
+  }
 
-  // Thrust, as an arrow at the hub.
-  if (P.thrust > 0) {
-    const len = 14 + 34 * (P.thrust / 5e6);
-    const x = V.X(hub[0]) - len - 10;
-    const y = V.Z(hub[1]);
+  // While pulling: an arrow showing which way and how hard.
+  if (state.grab && Math.abs(state.pull) > 1e4) {
+    const at = place(m, state.grab.xi, state.grab.zeta);
+    const x0 = V.X(at[0]);
+    const y0 = V.Z(at[1]);
+    const len = Math.max(12, Math.min(90, (Math.abs(state.pull) / PULL_MAX) * 90));
+    const dir = Math.sign(state.pull);
     g.strokeStyle = css('--hot');
-    g.lineWidth = 2;
-    g.beginPath(); g.moveTo(x, y); g.lineTo(x + len, y); g.stroke();
-    g.beginPath(); g.moveTo(x + len, y); g.lineTo(x + len - 6, y - 4); g.lineTo(x + len - 6, y + 4); g.closePath();
+    g.lineWidth = 2.4;
+    g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + dir * len, y0); g.stroke();
+    g.beginPath();
+    g.moveTo(x0 + dir * (len + 8), y0);
+    g.lineTo(x0 + dir * len, y0 - 5);
+    g.lineTo(x0 + dir * len, y0 + 5);
+    g.closePath();
     g.fillStyle = css('--hot'); g.fill();
   }
 
-  // The first stretch of each line, so the fairleads are not left dangling.
-  g.strokeStyle = css('--moor');
-  g.lineWidth = 1.4;
-  for (const L of m.lines) {
-    const f = place(m, L.xi, L.zeta);
-    const dx = L.xa - f[0], dz = L.za - f[1];
-    const n = Math.hypot(dx, dz) || 1;
-    g.beginPath();
-    g.moveTo(V.X(f[0]), V.Z(f[1]));
-    g.lineTo(V.X(f[0] + (dx / n) * 40), V.Z(f[1] + (dz / n) * 40));
-    g.stroke();
-  }
-}
-
-function drawMoor() {
-  const { g, w, h } = fit(moorCv);
-  const m = state.res;
-  if (!m) return;
-  const span = Math.max(P.rAnchor + 40, P.s);
-  const V = view(w, h, -span, span, -P.depth - 12, Math.max(30, P.Hc - m.draft + 10), 8);
-  drawSea(g, w, h, V, -P.depth);
-
-  // The hull as a plain block: this picture is about the lines.
-  g.fillStyle = css('--hull');
-  g.globalAlpha = 0.85;
-  const a = place(m, -P.s / 2 - P.D / 2, 0);
-  const b = place(m, P.s / 2 + P.D / 2, P.Hc);
-  g.fillRect(V.X(a[0]), V.Z(b[1]), Math.max(2, (b[0] - a[0]) * V.k), Math.max(2, (b[1] - a[1]) * V.k));
-  g.globalAlpha = 1;
-
-  g.strokeStyle = css('--moor');
-  g.lineWidth = 1.6;
-  for (const L of m.lines) {
-    const pts = linePoints(P, L, 90);
-    poly(g, pts, V);
-    g.stroke();
-    g.fillStyle = css('--moor');
-    g.beginPath(); g.arc(V.X(L.xa), V.Z(L.za), 3, 0, 2 * Math.PI); g.fill();
-  }
-
-  g.fillStyle = css('--muted');
-  g.font = '11px "IBM Plex Mono", ui-monospace, monospace';
-  const mode = m.lines[0] ? m.lines[0].mode : '';
-  const words = { seabed: 'slack on the bed', catenary: 'catenary', lifted: 'lifted clear', taut: 'taut tendons', slack: 'slack' };
-  g.fillText(words[mode] || mode, 8, h - 8);
-  g.fillText(`${(m.lines[0] ? m.lines[0].T / 1e6 : 0).toFixed(1)} MN`, w - 58, h - 8);
+  // A fixed upright, so a small lean is still visible.
+  g.strokeStyle = css('--muted');
+  g.setLineDash([3, 4]);
+  g.lineWidth = 1;
+  g.beginPath();
+  g.moveTo(V.X(m.q[0]), V.Z(-m.draft));
+  g.lineTo(V.X(m.q[0]), V.Z(top));
+  g.stroke();
+  g.setLineDash([]);
 }
 
 /**
- * The stability triangle: waterplane at the top, ballast bottom left, mooring
- * bottom right. A design's place in it is its share of the pitch restoring.
+ * The triangle. Each node is drawn where its design actually sits, so the mesh
+ * shows the reachable region: the corners themselves are not quite attainable,
+ * because a column that pierces the surface always has some waterplane.
  */
-function drawTri() {
-  const { g, w, h } = fit(triCv);
-  const m = state.res;
-  if (!m) return;
-  const pad = 30;
+function triLayout(w, h) {
+  const pad = 34;
   const side = Math.min(w - 2 * pad, (h - 2 * pad) / 0.866);
   const cx = w / 2;
   const top = (h - side * 0.866) / 2;
-  const A = [cx, top];                                  // waterplane
-  const B = [cx - side / 2, top + side * 0.866];        // ballast
-  const C = [cx + side / 2, top + side * 0.866];        // mooring
+  return {
+    A: [cx, top],                               // waterplane
+    B: [cx - side / 2, top + side * 0.866],     // ballast
+    C: [cx + side / 2, top + side * 0.866],     // mooring
+  };
+}
 
-  g.strokeStyle = css('--rule');
-  g.lineWidth = 1;
-  for (let i = 1; i < 4; i++) {
-    const t = i / 4;
-    const seg = (p, q, r, s2) => {
-      g.beginPath();
-      g.moveTo(p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t);
-      g.lineTo(r[0] + (s2[0] - r[0]) * t, r[1] + (s2[1] - r[1]) * t);
-      g.stroke();
-    };
-    seg(A, B, A, C);
-    seg(B, A, B, C);
-    seg(C, A, C, B);
-  }
+function nodeAt(L, res) {
+  const [a, b, c] = res.shares;
+  return [a * L.A[0] + b * L.B[0] + c * L.C[0], a * L.A[1] + b * L.B[1] + c * L.C[1]];
+}
+
+function drawTri() {
+  const { g, w, h } = fit(triCv);
+  const L = triLayout(w, h);
+
   g.strokeStyle = css('--muted');
-  g.lineWidth = 1.4;
+  g.lineWidth = 1.3;
   g.beginPath();
-  g.moveTo(A[0], A[1]); g.lineTo(B[0], B[1]); g.lineTo(C[0], C[1]); g.closePath();
+  g.moveTo(L.A[0], L.A[1]); g.lineTo(L.B[0], L.B[1]); g.lineTo(L.C[0], L.C[1]); g.closePath();
   g.stroke();
 
   g.font = '11px "IBM Plex Mono", ui-monospace, monospace';
   g.textAlign = 'center';
-  g.fillStyle = css('--wp'); g.fillText('waterplane', A[0], A[1] - 9);
-  g.fillStyle = css('--bal'); g.fillText('ballast', B[0] + 4, B[1] + 17);
-  g.fillStyle = css('--moor'); g.fillText('mooring', C[0] - 4, C[1] + 17);
-  g.fillStyle = css('--muted');
-  g.fillText('semi-sub', A[0], A[1] - 21);
-  g.fillText('spar', B[0] + 4, B[1] + 29);
-  g.fillText('TLP', C[0] - 4, C[1] + 29);
+  g.fillStyle = css('--wp'); g.fillText('semi-sub', L.A[0], L.A[1] - 10);
+  g.fillStyle = css('--bal'); g.fillText('spar', L.B[0] - 2, L.B[1] + 18);
+  g.fillStyle = css('--moor'); g.fillText('tension leg', L.C[0] + 6, L.C[1] + 18);
   g.textAlign = 'left';
 
-  const [a, b, c] = m.shares;
-  const px = a * A[0] + b * B[0] + c * C[0];
-  const py = a * A[1] + b * B[1] + c * C[1];
-  g.fillStyle = css('--ink');
-  g.beginPath(); g.arc(px, py, 6, 0, 2 * Math.PI); g.fill();
-  g.strokeStyle = css('--panel');
-  g.lineWidth = 2;
-  g.beginPath(); g.arc(px, py, 6, 0, 2 * Math.PI); g.stroke();
-}
-
-/** Autoscaled traces of the free decay, sharing one zero line. */
-function drawDecay() {
-  const { g, w, h } = fit(decayCv);
-  const mid = h / 2;
+  // The mesh, so it reads as a grid of choices rather than a scatter.
   g.strokeStyle = css('--rule');
   g.lineWidth = 1;
-  g.beginPath(); g.moveTo(0, mid); g.lineTo(w, mid); g.stroke();
+  const at = (i, j) => (grid[j * NX + i].res ? nodeAt(L, grid[j * NX + i].res) : null);
+  for (let j = 0; j < NY; j++) {
+    for (let i = 0; i < NX; i++) {
+      const p = at(i, j);
+      if (!p) continue;
+      for (const q of [i + 1 < NX ? at(i + 1, j) : null, j + 1 < NY ? at(i, j + 1) : null]) {
+        if (!q) continue;
+        g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke();
+      }
+    }
+  }
 
-  if (!tracePitch.length) {
-    g.fillStyle = css('--muted');
-    g.font = '11px "IBM Plex Mono", ui-monospace, monospace';
-    g.fillText('pluck it and watch how long it takes to settle', 10, mid - 8);
-    return;
-  }
-  for (const [trace, colour] of [[traceSurge, css('--moor')], [tracePitch, css('--wp')]]) {
-    let peak = 1e-9;
-    for (const v of trace) peak = Math.max(peak, Math.abs(v));
-    const amp = (h / 2 - 8) / peak;
-    g.strokeStyle = colour;
-    g.lineWidth = 1.6;
+  grid.forEach((node, i) => {
+    if (!node.res) return;
+    const p = nodeAt(L, node.res);
+    const on = i === state.pick;
     g.beginPath();
-    trace.forEach((v, i) => {
-      const x = (i / (TRACE - 1)) * w;
-      const y = mid - v * amp;
-      if (i) g.lineTo(x, y); else g.moveTo(x, y);
-    });
-    g.stroke();
-  }
-  g.fillStyle = css('--muted');
-  g.font = '11px "IBM Plex Mono", ui-monospace, monospace';
-  g.fillText('pitch', 10, 14);
-  g.fillText('surge', 52, 14);
+    g.arc(p[0], p[1], on ? 7 : 3.4, 0, 2 * Math.PI);
+    g.fillStyle = on ? css('--ink') : css('--muted');
+    g.fill();
+    if (on) {
+      g.strokeStyle = css('--panel');
+      g.lineWidth = 2.2;
+      g.stroke();
+    }
+  });
 }
 
-const fmt = (v, d, unit) => (isFinite(v) ? v.toFixed(d) + unit : '—');
+const fmt = (v, d, unit) => (isFinite(v) ? v.toFixed(d) + unit : '\u2014');
+
+function renderPanel() {
+  const m = current().res;
+  if (!m) return;
+  const [name, blurb] = describe(m);
+  $('name').textContent = name;
+  $('blurb').textContent = blurb;
+}
+
+// Built once and then only written to: this runs every frame, and rebuilding
+// four elements sixty times a second is a needless way to drop them.
+const CELLS = [
+  ['sits this deep', (m, lean) => fmt(m.draft, 0, ' m'), () => false],
+  ['leaning now', (m, lean) => fmt(lean, 1, '\u00b0'), (m, lean) => Math.abs(lean) > 8],
+  ['rocks every', (m) => fmt(m.Tpitch, 0, ' s'), () => false],
+  ['you are pulling', () => (state.grab ? fmt(Math.abs(state.pull) / 1e6, 1, ' MN') : '\u2014'),
+    () => Math.abs(state.pull) > 4e6],
+];
+const cellEls = CELLS.map(([label]) => {
+  const el = document.createElement('div');
+  el.className = 'num';
+  const b = document.createElement('b');
+  const sp = document.createElement('span');
+  sp.textContent = label;
+  el.append(b, sp);
+  $('nums').append(el);
+  return { el, b };
+});
 
 function renderNums() {
-  const m = state.res;
-  const host = $('nums');
+  const m = current().res;
   if (!m) return;
-  const cells = [
-    ['draft', fmt(m.draft, 1, ' m'), false],
-    ['heel', fmt(m.heel, 2, '°'), Math.abs(m.heel) > 5],
-    ['GM', fmt(m.GM, 1, ' m'), m.GM < 0],
-    ['displacement', fmt(m.disp / 1e6, 1, ' kt'), false],
-    ['surge period', fmt(m.Tsurge, 0, ' s'), false],
-    ['heave period', fmt(m.Theave, 1, ' s'), m.Theave > 5 && m.Theave < 20],
-    ['pitch period', fmt(m.Tpitch, 1, ' s'), m.Tpitch > 5 && m.Tpitch < 20],
-    ['ballast term', fmt(m.Cbal / 1e9, 2, ' GN·m'), m.Cbal < 0],
-  ];
-  host.replaceChildren(
-    ...cells.map(([label, value, warn]) => {
-      const el = document.createElement('div');
-      el.className = 'num' + (warn ? ' warn' : '');
-      const b = document.createElement('b');
-      b.textContent = value;
-      const sp = document.createElement('span');
-      sp.textContent = label;
-      el.append(b, sp);
-      return el;
-    }),
-  );
+  const lean = ((m.q[2] + state.x[2]) * 180) / Math.PI;
+  CELLS.forEach(([, value, warn], i) => {
+    const text = value(m, lean);
+    if (cellEls[i].b.textContent !== text) cellEls[i].b.textContent = text;
+    cellEls[i].el.classList.toggle('warn', !!warn(m, lean));
+  });
 }
 
 /* ------------------------------------------------------------- controls */
 
-/** One slider: integer units in the DOM, physical units in the handler. */
-function slider(id, apply, show) {
-  const el = $(id);
-  const out = $(id + 'Out');
-  const sync = () => {
-    apply(Number(el.value));
-    out.textContent = show(Number(el.value));
+function localPoint(cv, ev) {
+  const r = cv.getBoundingClientRect();
+  return [ev.clientX - r.left, ev.clientY - r.top];
+}
+
+triCv.addEventListener('pointerdown', (ev) => {
+  const [px, py] = localPoint(triCv, ev);
+  const L = triLayout(triCv.clientWidth, triCv.getAttribute('height') / 1);
+  let best = -1;
+  let bestD = Infinity;
+  grid.forEach((node, i) => {
+    if (!node.res) return;
+    const p = nodeAt(L, node.res);
+    const d = (p[0] - px) ** 2 + (p[1] - py) ** 2;
+    if (d < bestD) { bestD = d; best = i; }
+  });
+  if (best >= 0) choose(best);
+});
+
+// Grabbing the hull. Whatever is grabbed becomes the point the pull acts at, so
+// taking hold of the nacelle tips it and taking hold of the hull does not.
+tankCv.addEventListener('pointerdown', (ev) => {
+  const m = current().res;
+  if (!m) return;
+  const [px, py] = localPoint(tankCv, ev);
+  const w = tankCv.clientWidth;
+  const h = tankCv.getAttribute('height') / 1;
+  const V = tankView(w, h);
+  const [xi, zeta] = unplace(m, V.iX(px), V.iZ(py));
+  const span = current().P.s / 2 + current().P.D / 2;
+  state.grab = {
+    xi: Math.max(-span, Math.min(span, xi)),
+    zeta: Math.max(0, Math.min(hubHeight(current().P), zeta)),
+    px,
   };
-  el.addEventListener('input', () => { sync(); recompute(); });
-  return { el, sync };
-}
+  state.pull = 0;
+  tankCv.classList.add('pulling');
+  tankCv.setPointerCapture(ev.pointerId);
+  ev.preventDefault();
+});
 
-const S = {
-  hdep: slider('hdep', (v) => { P.Hc = v; }, (v) => v + ' m'),
-  diam: slider('diam', (v) => { P.D = v; }, (v) => v + ' m'),
-  spac: slider('spac', (v) => { P.s = v; }, (v) => v + ' m'),
-  mbal: slider('mbal', (v) => { P.mBallast = v * 1e5; }, (v) => (v / 10).toFixed(1) + ' kt'),
-  zbal: slider('zbal', (v) => { P.zBallast = (v / 100) * P.Hc; }, (v) => ((v / 100) * P.Hc).toFixed(1) + ' m'),
-  anch: slider('anch', (v) => { P.rAnchor = v; }, (v) => v + ' m'),
-  llen: slider('llen', (v) => { P.L0 = v; }, (v) => v + ' m'),
-  lwt: slider('lwt', (v) => { P.w = v * 10; }, (v) => (v * 10 / 1000).toFixed(2) + ' kN/m'),
-  thr: slider('thr', (v) => { P.thrust = v * 1e4; }, (v) => (v / 100).toFixed(2) + ' MN'),
-  damp: slider('damp', (v) => { state.zeta = v / 1000; }, (v) => (v / 10).toFixed(1) + ' %'),
+tankCv.addEventListener('pointermove', (ev) => {
+  if (!state.grab) return;
+  const [px] = localPoint(tankCv, ev);
+  state.pull = Math.max(-PULL_MAX, Math.min(PULL_MAX, (px - state.grab.px) * PULL_GAIN));
+});
+
+const letGo = () => {
+  if (!state.grab) return;
+  state.grab = null;
+  state.pull = 0;
+  tankCv.classList.remove('pulling');
 };
-
-// Ballast height is a fraction of the hull depth, so deepening the hull must
-// move the ballast with it rather than leaving it stranded mid-column.
-S.hdep.el.addEventListener('input', () => S.zbal.sync());
-
-/** Push every slider's value into P at once, for presets and for startup. */
-function syncAll() {
-  for (const k of Object.keys(S)) S[k].sync();
-}
-
-function preset(values) {
-  for (const [k, v] of Object.entries(values)) S[k].el.value = String(v);
-  syncAll();
-  stopMotion();
-  state.res = null;
-  recompute();
-}
-
-$('pSpar').addEventListener('click', () =>
-  preset({ hdep: 120, diam: 14, spac: 16, mbal: 240, zbal: 3, anch: 700, llen: 780, lwt: 180 }));
-$('pSemi').addEventListener('click', () =>
-  preset({ hdep: 40, diam: 22, spac: 52, mbal: 120, zbal: 15, anch: 800, llen: 850, lwt: 180 }));
-$('pTlp').addEventListener('click', () =>
-  preset({ hdep: 35, diam: 18, spac: 40, mbal: 20, zbal: 15, anch: 10, llen: 176, lwt: 180 }));
-
-$('pluckP').addEventListener('click', () => pluck('pitch'));
-$('pluckS').addEventListener('click', () => pluck('surge'));
-$('stop').addEventListener('click', stopMotion);
-
-function syncMotion() {
-  $('pluckP').classList.toggle('on', state.moving);
-  $('pluckS').classList.toggle('on', false);
-}
+tankCv.addEventListener('pointerup', letGo);
+tankCv.addEventListener('pointercancel', letGo);
+tankCv.addEventListener('pointerleave', letGo);
 
 /* ----------------------------------------------------------------- loop */
 
@@ -1085,27 +1069,24 @@ function frame(now) {
   acc += dt;
   const H = 1 / 120;
   let guard = 0;
-  // Real periods run to tens of seconds, so the decay is shown sped up;
-  // otherwise a pitch decay would take a lecture to watch.
-  while (acc >= H && guard++ < 400) { step(H * 6); acc -= H; }
+  while (acc >= H && guard++ < 400) { step(H * SPEEDUP); acc -= H; }
 
-  if (state.moving) pushTraces();
-  drawHull();
-  drawMoor();
+  drawTank();
   drawTri();
-  drawDecay();
+  renderNums();
   requestAnimationFrame(frame);
 }
 
-// Open in a working state: solved, labelled, and already ringing down.
-syncAll();
-recompute();
-syncMotion();
+// Open on a semi-submersible, upright and ready to be pulled over.
+build();
+state.pick = 0;
+renderPanel();
 $('foot').textContent =
-  'Two circular columns, each treated as a strip; mooring lines solved as catenaries with seabed contact, or as elastic tendons once taut. '
-  + 'Added mass from constant coefficients (Ca = ' + P.Ca11.toFixed(1) + ' horizontal, ' + P.Ca33.toFixed(1) + ' vertical), which is the crudest thing here and sets the periods. '
-  + 'The pitch stiffness found by differentiating the forces agrees with rho g V GM to better than 0.01%. Decay shown at six times real speed.';
-pluck('pitch');
+  'Two circular columns treated as strips; lines solved as catenaries with seabed contact, or stretched once taut. '
+  + 'Ballast is not a free choice - it is whatever floats the hull at the draft its shape implies. '
+  + 'The pitch stiffness, found by differentiating the forces, agrees with the textbook rho g V GM to better than 0.01%. '
+  + 'Motion is linear about the upright position, damped at ' + (DAMPING * 100).toFixed(0) + '% of critical and shown at '
+  + SPEEDUP + ' times real speed. No waves.';
 requestAnimationFrame(frame);
 
 </script>

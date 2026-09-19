@@ -1,3 +1,5 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cantilever Mode Lab</title>
 <style>
   :root {
@@ -461,7 +463,7 @@ const modalCv = document.getElementById('modal');
 const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
 function fit(cv) {
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = cv.clientWidth, h = cv.getAttribute('height') / 1;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h)) {
     cv.width = Math.round(w * dpr);

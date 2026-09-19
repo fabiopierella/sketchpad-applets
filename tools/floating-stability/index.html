@@ -1,3 +1,5 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Floating Platform Stability</title>
 <style>
   :root {
@@ -69,7 +71,16 @@
   }
   .foot { font-size: 0.73rem; color: var(--muted); margin: 0; }
 
-  @media (max-width: 720px) { .stage { grid-template-columns: 1fr; } }
+  #err {
+    display: none; margin: 0; padding: 9px 11px; border-radius: 8px;
+    border: 1px solid var(--hot); color: var(--hot);
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.76rem;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  @media (max-width: 860px) {
+    .stage { grid-template-columns: 1fr; }
+    body { padding: 10px 10px 24px; }
+  }
 </style>
 
 <div class="wrap">
@@ -77,6 +88,8 @@
     <h1>What keeps a floating turbine upright?</h1>
     <p>There are only three answers, and every real platform is a mixture of them. Pick a mixture on the triangle; then grab the turbine and pull.</p>
   </header>
+
+  <p id="err"></p>
 
   <div class="stage">
     <div class="col">
@@ -103,6 +116,22 @@
 </div>
 
 <script>
+
+/**
+ * Anything that goes wrong is shown on the page. There is no console to open on
+ * a phone, and a blank white rectangle tells whoever is holding it nothing.
+ */
+function report(what, err) {
+  try {
+    const box = document.getElementById('err');
+    if (!box) return;
+    box.style.display = 'block';
+    box.textContent = what + ': ' + ((err && (err.stack || err.message)) || err)
+      + '\n' + navigator.userAgent;
+  } catch (ignored) { /* nothing left to try */ }
+}
+window.addEventListener('error', (e) => report('Error', e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => report('Promise', e.reason));
 
 /* ------------------------------------------------------------------ maths
  * A floating wind platform in two dimensions: surge, heave and pitch.
@@ -224,7 +253,7 @@ function bisect(f, a, b) {
  * Both reduce to one monotone equation in the horizontal tension H.
  */
 function catenary(L0, w, X, h) {
-  if (!(h > 0) || !(w > 0)) return { H: 0, V: 0, mode: 'slack', xs: 0, xA: 0 };
+  if (!(h > 0) || !(w > 0) || !(L0 > h)) return { H: 0, V: 0, mode: 'slack', xs: 0, xA: 0 };
   const hLift = (w * (L0 * L0 - h * h)) / (2 * h);
 
   const suspended = (H) => Math.sqrt(h * h + (2 * h * H) / w);
@@ -733,7 +762,7 @@ const tankCv = $('tank');
 const triCv = $('tri');
 
 function fit(cv) {
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = cv.clientWidth;
   const h = cv.getAttribute('height') / 1;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
@@ -1071,16 +1100,26 @@ function frame(now) {
   let guard = 0;
   while (acc >= H && guard++ < 400) { step(H * SPEEDUP); acc -= H; }
 
-  drawTank();
-  drawTri();
-  renderNums();
+  try {
+    drawTank();
+    drawTri();
+    renderNums();
+  } catch (err) {
+    report('While drawing', err);
+    return; // stop rather than repeat the same failure sixty times a second
+  }
   requestAnimationFrame(frame);
 }
 
 // Open on a semi-submersible, upright and ready to be pulled over.
-build();
-state.pick = 0;
-renderPanel();
+try {
+  build();
+  state.pick = grid.findIndex((n) => n.res);
+  if (state.pick < 0) throw new Error('no design on the grid would solve');
+  renderPanel();
+} catch (err) {
+  report('While working out the platforms', err);
+}
 $('foot').textContent =
   'Two circular columns treated as strips; lines solved as catenaries with seabed contact, or stretched once taut. '
   + 'Ballast is not a free choice - it is whatever floats the hull at the draft its shape implies. '

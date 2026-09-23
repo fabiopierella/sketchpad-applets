@@ -1,6 +1,7 @@
 {
   "tools": [
     "modal-beam",
-    "floating-stability"
+    "floating-stability",
+    "pile-modes"
   ]
 }

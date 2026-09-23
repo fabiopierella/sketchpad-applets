@@ -1,0 +1,802 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pile lab</title>
+<style>
+  :root {
+    --ground-hi: #eef1f7; --ground-mid: #e5eaf3; --ground-lo: #d9dfeb;
+    --glass: rgba(255,255,255,.72); --glass-edge: rgba(15,23,42,.10);
+    --ink: #0f172a; --soft: #475569; --muted: #8a94a2;
+    --accent: #2563eb; --sky: rgba(255,255,255,.55);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground-hi: #1a1f29; --ground-mid: #141922; --ground-lo: #0e1219;
+      --glass: rgba(30,36,48,.72); --glass-edge: rgba(226,232,240,.10);
+      --ink: #e2e8f0; --soft: #c3cbd6; --muted: #8b95a5;
+      --accent: #60a5fa; --sky: rgba(148,163,184,.08);
+    }
+  }
+  html, body { margin: 0; height: 100%; width: 100%; overflow: hidden; }
+  /* The pendulum's ground: a soft light from above, a faint blue pool at the
+     bottom where the trace runs, and slightly darker edges. */
+  body {
+    background:
+      radial-gradient(120% 85% at 50% -8%, var(--sky), rgba(255,255,255,0) 58%),
+      radial-gradient(85% 65% at 50% 108%, rgba(37,99,235,.11), rgba(37,99,235,0) 72%),
+      radial-gradient(140% 120% at 50% 50%, rgba(15,23,42,0) 55%, rgba(15,23,42,.07) 100%),
+      linear-gradient(180deg, var(--ground-hi) 0%, var(--ground-mid) 46%, var(--ground-lo) 100%);
+    background-color: var(--ground-mid);
+    font: 500 13px/1.35 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--ink);
+    -webkit-text-size-adjust: 100%;
+  }
+  canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+
+  /* The only chrome: the nacelle's weight, and a way to stop everything. */
+  .glass {
+    position: fixed; top: 12px; z-index: 2;
+    background: var(--glass); border: 1px solid var(--glass-edge);
+    border-radius: 11px; box-shadow: 0 1px 3px rgba(15,23,42,.08);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  #weight { left: 12px; padding: 7px 11px 5px; display: flex; flex-direction: column; gap: 1px; width: min(200px, 44vw); }
+  #weight .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  #weight label { color: var(--soft); font-weight: 600; font-size: 12px; letter-spacing: .02em; }
+  #weight output { font-variant-numeric: tabular-nums; color: var(--ink); font-size: 12px; }
+  #weight input { width: 100%; margin: 2px 0 0; accent-color: var(--accent); height: 22px; }
+  #calm {
+    right: 12px; height: 34px; padding: 0 14px; cursor: pointer;
+    font: 600 12px/1 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--soft); letter-spacing: .03em;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #calm:hover, #calm:focus-visible { color: var(--ink); }
+  #calm:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  #hint {
+    position: fixed; left: 50%; top: 22px; transform: translateX(-50%); z-index: 1;
+    font: 500 clamp(10px, 1.2vw, 13px)/1.4 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    letter-spacing: .02em; color: var(--muted); white-space: nowrap; pointer-events: none;
+    opacity: 0; transition: opacity .7s ease; user-select: none;
+  }
+  #hint.show { opacity: 1; }
+  #hint b { font-weight: 700; color: var(--soft); }
+  /* Between the two controls when there is room, under them when not. */
+  @media (max-width: 640px) { #hint { top: 66px; } }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="An upright pile clamped at the seabed with a nacelle on top. Tap it or drag it to make it vibrate."></canvas>
+
+<div id="weight" class="glass">
+  <div class="row"><label for="mass">Nacelle</label><output id="massOut" for="mass"></output></div>
+  <input type="range" id="mass" min="0" max="300" step="5" value="100" aria-describedby="massHelp">
+  <span id="massHelp" hidden>Nacelle mass as a multiple of the pile's own mass</span>
+</div>
+<button id="calm" class="glass" type="button">Calm</button>
+<div id="hint"><b>Tap</b> the pile · <b>drag</b> to shake it · slide the <b>probe</b></div>
+
+<script>
+/* ---------------------------------------------------------------- physics
+ *
+ * An upright pile, clamped at the seabed and free at the top, with a point
+ * mass (the nacelle) on top. Twenty Euler-Bernoulli elements, stepped forward
+ * in time directly with Newmark's average-acceleration method. Nothing here
+ * knows what a mode is: modes are computed only to set the damping and the
+ * time scale, never to move the pile. Whatever mode-like motion appears on
+ * screen emerges from the equations, which is the point of the lab.
+ *
+ * Units are normalised: L = 1, EI = 1, rho*A = 1, so the pile's own mass is 1
+ * and the nacelle's mass IS the ratio on the slider. Heights run from 0 at the
+ * seabed to 1 at the top.
+ *
+ * verify.mjs slices this section out by its first line and the "state" banner
+ * below, and checks it against the closed-form answer. Keep both markers.
+ */
+const NEL = 20;
+const NDOF = 2 * NEL;                // two DOFs per node; the clamped base has none
+const H_EL = 1 / NEL;
+const ZETA1 = 0.02;                  // damping ratio of mode 1
+const ZETA2 = 0.03;                  // of mode 2; Rayleigh then damps higher modes harder still
+const HAND_STIFFNESS = 0.5;          // the spring from the hand; a sixth of the bare top's stiffness (3)
+const TAP_IMPULSE = 0.2;             // one tap, always the same, so taps at different heights compare
+const STEPS_PER_SECOND = 480;        // time steps per second of screen time
+
+function zeros(n, m) { return Array.from({ length: n }, () => new Float64Array(m)); }
+
+/** Element stiffness and consistent mass for a beam of length h. */
+function elementMatrices(h) {
+  const k = [
+    [12, 6 * h, -12, 6 * h],
+    [6 * h, 4 * h * h, -6 * h, 2 * h * h],
+    [-12, -6 * h, 12, -6 * h],
+    [6 * h, 2 * h * h, -6 * h, 4 * h * h],
+  ].map((r) => r.map((v) => v / (h * h * h)));
+  const m = [
+    [156, 22 * h, 54, -13 * h],
+    [22 * h, 4 * h * h, 13 * h, -3 * h * h],
+    [54, 13 * h, 156, -22 * h],
+    [-13 * h, -3 * h * h, -22 * h, 4 * h * h],
+  ].map((r) => r.map((v) => (v * h) / 420));
+  return { k, m };
+}
+
+/** Assemble the clamped pile with the nacelle on the top node's sideways DOF. */
+function assemble(nacelle) {
+  const { k, m } = elementMatrices(H_EL);
+  const K = zeros(NDOF, NDOF);
+  const M = zeros(NDOF, NDOF);
+  for (let e = 0; e < NEL; e++) {
+    const map = [2 * e - 2, 2 * e - 1, 2 * e, 2 * e + 1];   // node 0 is clamped: -2, -1 dropped
+    for (let a = 0; a < 4; a++) {
+      if (map[a] < 0) continue;
+      for (let b = 0; b < 4; b++) {
+        if (map[b] < 0) continue;
+        K[map[a]][map[b]] += k[a][b];
+        M[map[a]][map[b]] += m[a][b];
+      }
+    }
+  }
+  M[NDOF - 2][NDOF - 2] += nacelle;
+  return { K, M };
+}
+
+/**
+ * How much each DOF contributes to the sideways displacement at height x:
+ * the beam's own cubic (Hermite) interpolation. Dotted with the DOFs it gives
+ * the displacement there; used as a load vector it spreads a point force at x
+ * onto the nodes exactly as the element assumes. Taps, the hand and the probe
+ * all use it, so none of them is snapped to a node.
+ */
+function shapeAt(x) {
+  const v = new Float64Array(NDOF);
+  const xc = Math.min(1, Math.max(0, x));
+  const e = Math.min(NEL - 1, Math.floor(xc * NEL));
+  const s = (xc - e * H_EL) / H_EL, s2 = s * s, s3 = s2 * s, h = H_EL;
+  const N = [1 - 3 * s2 + 2 * s3, h * (s - 2 * s2 + s3), 3 * s2 - 2 * s3, h * (s3 - s2)];
+  const map = [2 * e - 2, 2 * e - 1, 2 * e, 2 * e + 1];
+  for (let a = 0; a < 4; a++) if (map[a] >= 0) v[map[a]] += N[a];
+  return v;
+}
+
+function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
+
+/** Cholesky A = L*L^T, for the symmetric positive definite matrices used here. */
+function cholesky(A) {
+  const n = A.length;
+  const L = zeros(n, n);
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j <= i; j++) {
+      let s = A[i][j];
+      for (let k = 0; k < j; k++) s -= L[i][k] * L[j][k];
+      if (i === j) L[i][i] = Math.sqrt(Math.max(s, 1e-300));
+      else L[i][j] = s / L[j][j];
+    }
+  }
+  return L;
+}
+
+/** Solve L*y = b for lower-triangular L. */
+function forwardSolve(L, b) {
+  const n = L.length;
+  const y = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let s = b[i];
+    for (let k = 0; k < i; k++) s -= L[i][k] * y[k];
+    y[i] = s / L[i][i];
+  }
+  return y;
+}
+
+/** Solve L^T x = y for lower-triangular L. */
+function backSolveT(L, y) {
+  const n = L.length;
+  const x = new Float64Array(n);
+  for (let i = n - 1; i >= 0; i--) {
+    let s = y[i];
+    for (let k = i + 1; k < n; k++) s -= L[k][i] * x[k];
+    x[i] = s / L[i][i];
+  }
+  return x;
+}
+
+/** Solve A*x = b given the Cholesky factor of A. */
+function cholSolve(L, b) { return backSolveT(L, forwardSolve(L, b)); }
+
+/** Symmetric eigenproblem by cyclic Jacobi rotations. */
+function jacobiEigen(Ain) {
+  const n = Ain.length;
+  const A = Ain.map((r) => Float64Array.from(r));
+  const V = zeros(n, n);
+  for (let i = 0; i < n; i++) V[i][i] = 1;
+  for (let sweep = 0; sweep < 60; sweep++) {
+    let off = 0;
+    for (let p = 0; p < n; p++) for (let q = p + 1; q < n; q++) off += A[p][q] * A[p][q];
+    if (Math.sqrt(off) < 1e-11) break;
+    for (let p = 0; p < n; p++) {
+      for (let q = p + 1; q < n; q++) {
+        if (Math.abs(A[p][q]) < 1e-14) continue;
+        const theta = (A[q][q] - A[p][p]) / (2 * A[p][q]);
+        const t = (theta >= 0 ? 1 : -1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+        const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+        for (let k = 0; k < n; k++) {
+          const akp = A[k][p], akq = A[k][q];
+          A[k][p] = c * akp - s * akq; A[k][q] = s * akp + c * akq;
+        }
+        for (let k = 0; k < n; k++) {
+          const apk = A[p][k], aqk = A[q][k];
+          A[p][k] = c * apk - s * aqk; A[q][k] = s * apk + c * aqk;
+        }
+        for (let k = 0; k < n; k++) {
+          const vkp = V[k][p], vkq = V[k][q];
+          V[k][p] = c * vkp - s * vkq; V[k][q] = s * vkp + c * vkq;
+        }
+      }
+    }
+  }
+  return { values: A.map((r, i) => r[i]), vectors: V };
+}
+
+/**
+ * The lowest `count` modes, mass-normalised (phi^T M phi = 1). Optionally with
+ * a spring of stiffness k to ground at height x - the hand holding the pile.
+ * Used for the damping, the time scale and the checks; never to move the pile.
+ */
+function solveModes(nacelle, count, spring) {
+  const { K, M } = assemble(nacelle);
+  if (spring) {
+    const n = shapeAt(spring.x);
+    for (let i = 0; i < NDOF; i++) for (let j = 0; j < NDOF; j++) K[i][j] += spring.k * n[i] * n[j];
+  }
+  const L = cholesky(M);
+  const Y = zeros(NDOF, NDOF);                       // Y = L^-1 K
+  for (let j = 0; j < NDOF; j++) {
+    const col = forwardSolve(L, K.map((r) => r[j]));
+    for (let i = 0; i < NDOF; i++) Y[i][j] = col[i];
+  }
+  const A = zeros(NDOF, NDOF);                       // A = L^-1 K L^-T
+  for (let j = 0; j < NDOF; j++) {
+    const col = forwardSolve(L, Y[j]);               // row j of Y is column j of Y^T
+    for (let i = 0; i < NDOF; i++) A[i][j] = col[i];
+  }
+  for (let i = 0; i < NDOF; i++) {
+    for (let j = i + 1; j < NDOF; j++) { const v = 0.5 * (A[i][j] + A[j][i]); A[i][j] = v; A[j][i] = v; }
+  }
+  const { values, vectors } = jacobiEigen(A);
+  const order = values.map((v, i) => i).sort((a, b) => values[a] - values[b]);
+  const omega = [], phi = [];
+  for (let r = 0; r < count; r++) {
+    const idx = order[r];
+    omega.push(Math.sqrt(Math.max(values[idx], 0)));
+    phi.push(backSolveT(L, vectors.map((row) => row[idx])));
+  }
+  return { omega, phi, K, M };
+}
+
+/**
+ * Seconds of model time per second on screen, chosen so that the pile with
+ * the default nacelle (1) swings once a second. Fixed at that: a heavier
+ * nacelle then visibly swings slower, which is the thing to notice.
+ */
+const TIME_SCALE = (2 * Math.PI) / solveModes(1, 1).omega[0];
+const SIM_DT = TIME_SCALE / STEPS_PER_SECOND;
+
+/**
+ * The pile in motion. Newmark average acceleration (beta 1/4, gamma 1/2):
+ * unconditionally stable, and it adds no numerical damping of its own, so the
+ * only decay is the Rayleigh damping set here.
+ */
+function createSim(initialNacelle) {
+  const dt = SIM_DT, a0 = 4 / (dt * dt), a1 = 2 / dt, a2 = 4 / dt;
+  const u = new Float64Array(NDOF), v = new Float64Array(NDOF), acc = new Float64Array(NDOF);
+  const F = new Float64Array(NDOF), t1 = new Float64Array(NDOF), t2 = new Float64Array(NDOF);
+  let nacelle = initialNacelle;
+  let K, M, C, LM, LK;
+  let hand = null;                                   // { x, n, anchor } while held
+
+  function mulAdd(A, x, out) {                       // out += A x
+    for (let i = 0; i < NDOF; i++) { const r = A[i]; let s = 0; for (let j = 0; j < NDOF; j++) s += r[j] * x[j]; out[i] += s; }
+  }
+
+  function rebuild() {
+    ({ K, M } = assemble(nacelle));
+    // Rayleigh C = alpha M + beta K, calibrated so modes 1 and 2 get exactly
+    // ZETA1 and ZETA2 whatever the nacelle weighs.
+    const [w1, w2] = solveModes(nacelle, 2).omega;
+    const d = w2 * w2 - w1 * w1;
+    const alpha = (2 * w1 * w2 * (ZETA1 * w2 - ZETA2 * w1)) / d;
+    const beta = (2 * (ZETA2 * w2 - ZETA1 * w1)) / d;
+    C = K.map((row, i) => row.map((k, j) => alpha * M[i][j] + beta * k));
+    LM = cholesky(M);
+    factor();
+  }
+
+  /** The effective stiffness changes only when the hand takes or lets go. */
+  function factor() {
+    const E = K.map((row, i) => row.map((k, j) => k + a0 * M[i][j] + a1 * C[i][j]));
+    if (hand) for (let i = 0; i < NDOF; i++) for (let j = 0; j < NDOF; j++) E[i][j] += HAND_STIFFNESS * hand.n[i] * hand.n[j];
+    LK = cholesky(E);
+  }
+
+  function loads(out) {
+    out.fill(0);
+    if (hand) for (let i = 0; i < NDOF; i++) out[i] = HAND_STIFFNESS * hand.anchor * hand.n[i];
+  }
+
+  /** Acceleration consistent with the current state, after a jump in it. */
+  function settle() {
+    loads(F);
+    t1.fill(0); mulAdd(C, v, t1); mulAdd(K, u, t1);
+    if (hand) { const s = HAND_STIFFNESS * dot(hand.n, u); for (let i = 0; i < NDOF; i++) t1[i] += s * hand.n[i]; }
+    for (let i = 0; i < NDOF; i++) F[i] -= t1[i];
+    acc.set(cholSolve(LM, F));
+  }
+
+  rebuild();
+
+  return {
+    get u() { return u; },
+    get held() { return hand; },
+
+    step() {
+      loads(F);
+      for (let i = 0; i < NDOF; i++) { t1[i] = a0 * u[i] + a2 * v[i] + acc[i]; t2[i] = a1 * u[i] + v[i]; }
+      mulAdd(M, t1, F);
+      mulAdd(C, t2, F);
+      const un = cholSolve(LK, F);
+      for (let i = 0; i < NDOF; i++) {
+        const an = a0 * (un[i] - u[i]) - a2 * v[i] - acc[i];
+        v[i] += 0.5 * dt * (acc[i] + an);
+        u[i] = un[i];
+        acc[i] = an;
+      }
+    },
+
+    /** A sharp push at height x: an impulse, so the velocity jumps and nothing else. */
+    tap(x, impulse, direction) {
+      const dv = cholSolve(LM, shapeAt(x));
+      for (let i = 0; i < NDOF; i++) v[i] += impulse * direction * dv[i];
+      settle();
+    },
+
+    /** Take hold at height x. The spring starts slack, so taking hold moves nothing. */
+    grab(x) {
+      const n = shapeAt(x);
+      hand = { x, n, anchor: dot(n, u) };
+      factor(); settle();
+    },
+    moveHand(anchor) { if (hand) hand.anchor = anchor; },
+    release() { if (!hand) return; hand = null; factor(); settle(); },
+
+    setNacelle(m) { nacelle = m; rebuild(); settle(); },
+    calm() { u.fill(0); v.fill(0); acc.fill(0); if (hand) hand.anchor = 0; },
+    displacementAt(x) { return dot(shapeAt(x), u); },
+  };
+}
+
+/* --------------------------------------------------------------- state */
+
+const sim = createSim(1);
+let nacelle = 1;
+let probe = 1;                                       // height of the probe, 0..1
+
+const PLOT_HZ = 240;                                 // plot samples per screen second
+const PLOT_SECONDS = 6;
+const PLOT_N = PLOT_HZ * PLOT_SECONDS;
+const plotBuf = new Float32Array(PLOT_N);
+let plotCount = 0, plotHead = 0, plotTotal = 0, plotRef = 0.04;
+
+// The pile is drawn from this many heights, each a fixed row of shapeAt.
+const SAMPLES = 64;
+const ROWS = Array.from({ length: SAMPLES + 1 }, (_, i) => shapeAt(i / SAMPLES));
+function pileShape(out) { for (let i = 0; i <= SAMPLES; i++) out[i] = dot(ROWS[i], sim.u); return out; }
+
+const GHOST_LIFE = 0.9;                              // seconds a ghost takes to fade
+const ghosts = [];                                   // { shape, t }
+const ripples = [];                                  // { x, y, t }
+let clock = 0, frameNo = 0;
+
+/* ------------------------------------------------------------ rendering */
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+let lay = null;
+
+function readPalette() {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  return dark ? {
+    pile: '#cbd5e1', pileLo: '#94a3b8', shadow: 'rgba(0,0,0,0.35)', seam: 'rgba(255,255,255,0.18)',
+    accent: '96,165,250', warm: '251,146,60', ink: '#e2e8f0', muted: 'rgba(148,163,184,0.75)',
+    rule: 'rgba(148,163,184,0.28)', soil: '71,85,105', nacelleHi: '#e2e8f0', nacelleLo: '#64748b',
+  } : {
+    pile: '#1f2937', pileLo: '#4b5563', shadow: 'rgba(15,23,42,0.16)', seam: 'rgba(255,255,255,0.30)',
+    accent: '37,99,235', warm: '249,115,22', ink: '#0f172a', muted: 'rgba(100,116,139,0.85)',
+    rule: 'rgba(100,116,139,0.30)', soil: '100,116,139', nacelleHi: '#64748b', nacelleLo: '#1e293b',
+  };
+}
+let pal = readPalette();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { pal = readPalette(); });
+const rgba = (c, a) => `rgba(${c},${a.toFixed(3)})`;
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = cv.clientWidth; H = cv.clientHeight;
+  const bw = Math.round(W * DPR), bh = Math.round(H * DPR);
+  if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+  layout();
+}
+
+/** Where everything sits, from the window size alone. */
+function layout() {
+  const band = Math.max(70, Math.min(230, H * 0.27));
+  const baseY = H - band - Math.max(16, (H - band) * 0.07);
+  const scale = Math.max(40, Math.min(baseY - 70, W / 1.35));
+  const cx = W * 0.5 - 0.1 * scale;
+  const rulerX = Math.min(W - 26, cx + 0.55 * scale);
+  lay = { band, baseY, scale, cx, rulerX, pileW: Math.max(5, Math.min(14, scale * 0.028)) };
+}
+
+const sx = (disp) => lay.cx + disp * lay.scale;
+const sy = (height) => lay.baseY - height * lay.scale;
+
+function strokePile(shape, width, style) {
+  ctx.lineWidth = width; ctx.strokeStyle = style;
+  ctx.beginPath();
+  for (let i = 0; i <= SAMPLES; i++) {
+    const x = sx(shape[i]), y = sy(i / SAMPLES);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+function drawGround() {
+  const { baseY, cx, scale, pileW } = lay;
+  // Soil: a soft band that dissolves sideways and downwards.
+  const half = scale * 0.55;
+  const g = ctx.createLinearGradient(0, baseY, 0, baseY + 26);
+  g.addColorStop(0, rgba(pal.soil, 0.22));
+  g.addColorStop(1, rgba(pal.soil, 0));
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(cx, baseY, half, 26, 0, 0, Math.PI); ctx.fill();
+  // The embedded part of the pile, faint below the mudline.
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = rgba(pal.soil, 0.35); ctx.lineWidth = pileW;
+  ctx.beginPath(); ctx.moveTo(cx, baseY); ctx.lineTo(cx, baseY + 18); ctx.stroke();
+  // Mudline.
+  const m = ctx.createLinearGradient(cx - half, 0, cx + half, 0);
+  m.addColorStop(0, rgba(pal.soil, 0)); m.addColorStop(0.5, rgba(pal.soil, 0.55)); m.addColorStop(1, rgba(pal.soil, 0));
+  ctx.strokeStyle = m; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(cx - half, baseY + 0.5); ctx.lineTo(cx + half, baseY + 0.5); ctx.stroke();
+}
+
+function drawGhosts() {
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (const gh of ghosts) {
+    const life = 1 - (clock - gh.t) / GHOST_LIFE;
+    if (life <= 0) continue;
+    strokePile(gh.shape, 1.6, rgba(pal.accent, 0.20 * life * life));
+  }
+}
+
+function drawPile(shape) {
+  const w = lay.pileW;
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  strokePile(shape, w * 1.9, pal.shadow);
+  const g = ctx.createLinearGradient(0, sy(0), 0, sy(1));
+  g.addColorStop(0, pal.pileLo); g.addColorStop(0.5, pal.pile); g.addColorStop(1, pal.pile);
+  strokePile(shape, w, g);
+  strokePile(shape, Math.max(0.6, w * 0.22), pal.seam);
+}
+
+function drawNacelle() {
+  if (nacelle <= 0.001) return;
+  const u = sim.u, x = sx(u[NDOF - 2]), y = sy(1);
+  const slope = u[NDOF - 1];                         // rotation DOF at the top
+  const w = lay.scale * (0.07 + 0.1 * Math.sqrt(nacelle / 3)), h = w * 0.42;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(Math.atan(slope));
+  ctx.translate(0, -h * 0.5);
+  ctx.fillStyle = pal.shadow;
+  ctx.beginPath(); ctx.ellipse(0, h * 0.62, w * 0.62, h * 0.32, 0, 0, Math.PI * 2); ctx.fill();
+  const g = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+  g.addColorStop(0, pal.nacelleHi); g.addColorStop(1, pal.nacelleLo);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(-w / 2, -h / 2, w, h, h * 0.42); else ctx.rect(-w / 2, -h / 2, w, h);
+  ctx.fill();
+  // Hub, facing the wind on the left.
+  ctx.beginPath(); ctx.ellipse(-w / 2, 0, h * 0.34, h * 0.42, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = pal.seam;
+  ctx.beginPath(); ctx.ellipse(-w * 0.1, -h * 0.26, w * 0.3, h * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawRuler() {
+  const { rulerX, baseY, scale } = lay;
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(rulerX + 0.5, baseY); ctx.lineTo(rulerX + 0.5, sy(1)); ctx.stroke();
+  ctx.font = '500 10px system-ui,-apple-system,"Segoe UI",Arial,sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  for (let q = 0; q <= 4; q++) {
+    const y = Math.round(sy(q / 4)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(rulerX - 4, y); ctx.lineTo(rulerX + 4, y); ctx.stroke();
+  }
+  ctx.fillStyle = pal.muted;
+  // End labels, unless the probe's own label is sitting on them.
+  if (scale > 150) {
+    if (probe < 0.93) ctx.fillText('L', rulerX + 7, sy(1));
+    if (probe > 0.07) ctx.fillText('0', rulerX + 7, baseY);
+  }
+
+  // The probe: a handle on the ruler, a dashed line across, a ring on the pile.
+  const y = sy(probe), px = sx(sim.displacementAt(probe));
+  ctx.setLineDash([3, 4]);
+  ctx.strokeStyle = rgba(pal.accent, 0.45);
+  ctx.beginPath(); ctx.moveTo(rulerX - 9, y); ctx.lineTo(px + 7, y); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle = rgba(pal.accent, 0.9); ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.arc(px, y, 5, 0, Math.PI * 2); ctx.stroke();
+
+  const glow = ctx.createRadialGradient(rulerX, y, 3, rulerX, y, 20);
+  glow.addColorStop(0, rgba(pal.accent, 0.25)); glow.addColorStop(1, rgba(pal.accent, 0));
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(rulerX, y, 20, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = rgba(pal.accent, 1);
+  ctx.beginPath(); ctx.arc(rulerX, y, 7.5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath(); ctx.arc(rulerX - 2, y - 2.2, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = pal.muted;
+  ctx.fillText(probe.toFixed(2) + ' L', rulerX + 13, y);
+}
+
+function drawHand() {
+  const h = sim.held;
+  if (!h) return;
+  const y = sy(h.x), from = sx(sim.displacementAt(h.x)), to = sx(h.anchor);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = rgba(pal.warm, 0.55); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(from, y); ctx.lineTo(to, y); ctx.stroke();
+  ctx.fillStyle = rgba(pal.warm, 0.2);
+  ctx.beginPath(); ctx.arc(to, y, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = rgba(pal.warm, 0.95);
+  ctx.beginPath(); ctx.arc(to, y, 5.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(from, y, 3, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawRipples() {
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const r = ripples[i], age = (clock - r.t) / 0.55;
+    if (age >= 1) { ripples.splice(i, 1); continue; }
+    ctx.strokeStyle = rgba(pal.warm, 0.8 * (1 - age) * (1 - age));
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(r.x, r.y, 6 + 22 * Math.sqrt(age), 0, Math.PI * 2); ctx.stroke();
+  }
+}
+
+/* The trace: the pendulum's, glow and all, drawn to a small offscreen canvas
+   and scaled up, because soft gradients do not need device resolution. */
+let goff = null, gctx = null;
+function drawGraph(dt) {
+  const gh = lay.band, gw = W;
+  if (gh < 26 || W < 60 || plotCount < 2) return;
+  const GDPR = Math.min(DPR, 1.25);
+  if (!goff) { goff = document.createElement('canvas'); gctx = goff.getContext('2d'); }
+  const dw = Math.max(1, Math.round(gw * GDPR)), dh = Math.max(1, Math.round(gh * GDPR));
+  if (goff.width !== dw || goff.height !== dh) { goff.width = dw; goff.height = dh; }
+  const g = gctx;
+  g.setTransform(GDPR, 0, 0, GDPR, 0, 0);
+  g.clearRect(0, 0, gw, gh);
+
+  // Scale: grows at once to fit, relaxes slowly, never below a floor, so a
+  // still pile draws a flat line rather than magnified noise.
+  let peak = 0;
+  for (let i = 0; i < plotCount; i++) peak = Math.max(peak, Math.abs(plotBuf[i]));
+  const target = Math.max(0.02, peak);
+  plotRef += (target - plotRef) * Math.min(1, dt * (target > plotRef ? 12 : 0.8));
+
+  const mid = gh * 0.5, amp = gh * 0.40, px = gw / (PLOT_N - 1), n = plotCount;
+  const xOf = (i) => gw - (n - 1 - i) * px;
+  const at = (i) => plotBuf[(plotHead - n + i + PLOT_N) % PLOT_N];
+
+  // Second marks, scrolling with the trace, so a swing can be timed.
+  const oldest = plotTotal - n;
+  g.strokeStyle = rgba(pal.accent, 0.10); g.lineWidth = 1;
+  g.beginPath();
+  for (let a = Math.ceil(oldest / PLOT_HZ) * PLOT_HZ; a < plotTotal; a += PLOT_HZ) {
+    const x = Math.round(xOf(a - oldest)) + 0.5;
+    g.moveTo(x, gh * 0.12); g.lineTo(x, gh * 0.88);
+  }
+  g.stroke();
+  g.strokeStyle = rgba(pal.accent, 0.20);
+  g.beginPath(); g.moveTo(0, Math.round(mid) + 0.5); g.lineTo(gw, Math.round(mid) + 0.5); g.stroke();
+
+  const line = new Path2D();
+  for (let i = 0; i < n; i++) {
+    const y = mid - Math.max(-1.15, Math.min(1.15, at(i) / plotRef)) * amp;
+    if (i === 0) line.moveTo(xOf(i), y); else line.lineTo(xOf(i), y);
+  }
+  const area = new Path2D(line);
+  area.lineTo(xOf(n - 1), mid); area.lineTo(xOf(0), mid); area.closePath();
+  const fg = g.createLinearGradient(0, 0, 0, gh);
+  fg.addColorStop(0, rgba(pal.accent, 0.02)); fg.addColorStop(0.5, rgba(pal.accent, 0.30)); fg.addColorStop(1, rgba(pal.accent, 0.02));
+  g.fillStyle = fg; g.fill(area);
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.strokeStyle = rgba(pal.accent, 0.13); g.lineWidth = Math.max(5, gh * 0.05); g.stroke(line);
+  g.strokeStyle = rgba(pal.accent, 0.60); g.lineWidth = Math.max(2, gh * 0.018); g.stroke(line);
+  g.strokeStyle = 'rgba(191,219,254,0.95)'; g.lineWidth = Math.max(1, gh * 0.007); g.stroke(line);
+
+  // Dissolve the left end into the page; the right end is "now" and stays crisp.
+  const fw = Math.min(gw * 0.17, 240);
+  g.globalCompositeOperation = 'destination-out';
+  const lg = g.createLinearGradient(0, 0, fw, 0);
+  lg.addColorStop(0, 'rgba(0,0,0,1)'); lg.addColorStop(0.45, 'rgba(0,0,0,0.45)'); lg.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = lg; g.fillRect(0, 0, fw, gh);
+  g.globalCompositeOperation = 'source-over';
+
+  ctx.drawImage(goff, 0, H - gh, gw, gh);
+  ctx.fillStyle = pal.muted;
+  ctx.font = '600 10px system-ui,-apple-system,"Segoe UI",Arial,sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('PROBE DISPLACEMENT  ·  ' + probe.toFixed(2) + ' L', 14, H - gh + 6);
+}
+
+const shapeNow = new Float64Array(SAMPLES + 1);
+function render(dt) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  drawGraph(dt);
+  drawGround();
+  drawGhosts();
+  pileShape(shapeNow);
+  drawPile(shapeNow);
+  drawNacelle();
+  drawRuler();
+  drawHand();
+  drawRipples();
+}
+
+/* ------------------------------------------------------------ the hand */
+
+const hint = document.getElementById('hint');
+let hintTimer = setTimeout(() => hint.classList.add('show'), 700);
+function dismissHint() { clearTimeout(hintTimer); hint.classList.remove('show'); }
+
+const CLICK_SLOP = 6;                                // px of movement that turns a tap into a shake
+const HOLD_MS = 220;                                 // a press held this long is a shake too
+const HAND_REACH = 0.2;                              // the hand may pull the pile this far off its axis
+
+let drag = null;
+
+function local(e) { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+function heightAt(y) { return (lay.baseY - y) / lay.scale; }
+
+function onProbe(p) {
+  const x = heightAt(p.y);
+  return Math.abs(p.x - lay.rulerX) < 22 && x > -0.06 && x < 1.08;
+}
+function onPile(p) {
+  const x = heightAt(p.y);
+  if (x < 0.03 || x > 1 + 40 / lay.scale) return null;
+  const xc = Math.min(1, x);
+  const reach = Math.max(34, lay.scale * 0.12);
+  return Math.abs(p.x - sx(sim.displacementAt(xc))) <= reach ? xc : null;
+}
+
+function startShake(p) {
+  sim.grab(drag.x);
+  drag.kind = 'shake';
+  drag.base = sim.held.anchor;                       // hand motion is relative to where it took hold
+  drag.hx0 = p.x;
+}
+
+cv.addEventListener('pointerdown', (e) => {
+  if (drag || !e.isPrimary) return;
+  const p = local(e);
+  if (onProbe(p)) {
+    drag = { kind: 'probe', id: e.pointerId };
+    probe = Math.min(1, Math.max(0.02, heightAt(p.y)));
+  } else {
+    const x = onPile(p);
+    if (x === null) return;
+    const side = p.x < sx(sim.displacementAt(x)) ? 1 : -1;   // push away from the side you tap on
+    drag = { kind: 'pending', id: e.pointerId, x, x0: p.x, y0: p.y, t0: performance.now(), side, last: p };
+  }
+  cv.setPointerCapture(e.pointerId);
+  dismissHint();
+  e.preventDefault();
+});
+
+cv.addEventListener('pointermove', (e) => {
+  const p = local(e);
+  if (!drag) {
+    cv.style.cursor = onProbe(p) ? 'ns-resize' : onPile(p) !== null ? 'grab' : 'default';
+    return;
+  }
+  if (e.pointerId !== drag.id) return;
+  drag.last = p;
+  if (drag.kind === 'probe') { probe = Math.min(1, Math.max(0.02, heightAt(p.y))); return; }
+  if (drag.kind === 'pending' && Math.hypot(p.x - drag.x0, p.y - drag.y0) > CLICK_SLOP) startShake(p);
+  if (drag.kind === 'shake') {
+    const a = drag.base + (p.x - drag.hx0) / lay.scale;
+    sim.moveHand(Math.max(-HAND_REACH, Math.min(HAND_REACH, a)));
+    cv.style.cursor = 'grabbing';
+  }
+});
+
+function endPress(e, cancelled) {
+  if (!drag || e.pointerId !== drag.id) return;
+  if (drag.kind === 'pending' && !cancelled) {
+    sim.tap(drag.x, TAP_IMPULSE, drag.side);
+    ripples.push({ x: drag.x0, y: sy(drag.x), t: clock });
+  }
+  if (drag.kind === 'shake') sim.release();
+  drag = null;
+  cv.style.cursor = 'default';
+}
+cv.addEventListener('pointerup', (e) => endPress(e, false));
+cv.addEventListener('pointercancel', (e) => endPress(e, true));
+cv.addEventListener('lostpointercapture', (e) => endPress(e, true));
+
+/* ------------------------------------------------------------- controls */
+
+const massIn = document.getElementById('mass');
+const massOut = document.getElementById('massOut');
+function showMass() { massOut.textContent = nacelle === 0 ? 'none' : '× ' + nacelle.toFixed(2) + ' pile'; }
+massIn.addEventListener('input', () => {
+  nacelle = massIn.value / 100;
+  sim.setNacelle(nacelle);
+  showMass();
+});
+document.getElementById('calm').addEventListener('click', () => {
+  sim.calm();
+  ghosts.length = 0;
+  plotBuf.fill(0);
+});
+
+/* ----------------------------------------------------------------- loop */
+
+let last = performance.now(), acc = 0, stepNo = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  clock += dt;
+
+  if (drag && drag.kind === 'pending' && now - drag.t0 > HOLD_MS) startShake(drag.last);
+
+  acc += dt * STEPS_PER_SECOND;
+  let guard = 0;
+  while (acc >= 1 && guard++ < 60) {
+    sim.step();
+    acc -= 1;
+    if (++stepNo % (STEPS_PER_SECOND / PLOT_HZ) === 0) {
+      plotBuf[plotHead] = sim.displacementAt(probe);
+      plotHead = (plotHead + 1) % PLOT_N;
+      plotCount = Math.min(PLOT_N, plotCount + 1);
+      plotTotal++;
+    }
+  }
+  if (acc >= 1) acc = 0;                             // fell behind: drop time rather than spiral
+
+  if (++frameNo % 2 === 0) {
+    ghosts.push({ shape: pileShape(new Float64Array(SAMPLES + 1)), t: clock });
+    while (ghosts.length && clock - ghosts[0].t > GHOST_LIFE) ghosts.shift();
+  }
+
+  render(dt);
+  requestAnimationFrame(frame);
+}
+
+new ResizeObserver(resize).observe(cv);
+resize();
+showMass();
+// Open already ringing, so the page shows what it is for before anyone touches it.
+sim.tap(1, TAP_IMPULSE, 1);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

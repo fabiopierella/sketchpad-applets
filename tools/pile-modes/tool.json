@@ -1,0 +1,8 @@
+{
+  "name": "Pile lab",
+  "description": "An upright pile with a nacelle on top. Tap it or shake it by hand and watch a probe's displacement over time; where you excite it, and where you measure, decides which vibrations you can find.",
+  "status": "live",
+  "entry": "index.html",
+  "tags": ["vibration", "structures", "wind-turbines"],
+  "course": "46000 Introduction to Wind Energy"
+}

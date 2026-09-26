@@ -1,0 +1,8 @@
+{
+  "name": "Sea lab 3D",
+  "description": "The Sea lab with the sea drawn as a glossy slab in isometric view, 1.6 km long, so wave groups can be seen at a glance. Drag the JONSWAP spectrum's peak to set Hs and Tp and change the peak enhancement factor; runs at 15x speed for a short classroom exercise.",
+  "status": "live",
+  "entry": "index.html",
+  "tags": ["waves", "offshore", "metocean"],
+  "course": "46000 Introduction to Wind Energy"
+}

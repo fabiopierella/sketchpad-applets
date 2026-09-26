@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sea lab</title>
+<title>Sea lab 3D</title>
 <style>
   :root {
     --ground-hi: #eef1f7; --ground-mid: #e5eaf3; --ground-lo: #d9dfeb;
@@ -32,6 +32,8 @@
     -webkit-text-size-adjust: 100%;
   }
   canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+  /* The WebGL sea sits under the 2D canvas, in the top band only. */
+  #sea { bottom: auto; pointer-events: none; }
 
   /* The only chrome: gamma, and a fresh set of random phases. Hs and Tp live
      on the spectrum's peak. */
@@ -79,7 +81,8 @@
 </style>
 </head>
 <body>
-<canvas id="c" aria-label="A floating wind turbine in an irregular sea, the surface elevation at the turbine over time, and the JONSWAP spectrum. Drag the spectrum's peak to change Hs and Tp."></canvas>
+<canvas id="sea" aria-hidden="true"></canvas>
+<canvas id="c" aria-label="A slab of irregular sea seen in perspective, the surface elevation at a probe over time, and the JONSWAP spectrum. Drag the spectrum's peak to change Hs and Tp."></canvas>
 
 <div id="shape" class="glass">
   <div class="row"><label for="gamma">Peak enhancement γ</label><output id="gammaOut" for="gamma"></output></div>
@@ -215,11 +218,11 @@ function createSea(seed) {
     },
 
     /** The whole surface at once: one pass per component, not per point. */
-    surface(xs, out) {
+    surface(xs, out, kMax = Infinity) {
       out.fill(0);
       for (let i = 0; i < N_WAVES; i++) {
         const a = amp[i];
-        if (a < 1e-5) continue;
+        if (a < 1e-5 || k[i] > kMax) continue;
         const ki = k[i], c = phases[i] - theta[i];
         for (let j = 0; j < xs.length; j++) out[j] += a * Math.cos(ki * xs[j] + c);
       }
@@ -237,29 +240,15 @@ let seed = 1;
 const sea = createSea(seed);
 sea.setState(hs, tp, gamma);
 
-// The sea runs faster than real time. At real speed a change took minutes to
-// work through the trace, and a Tp of 10 s is a long wait for a wave; the
-// panels say so, so nobody reads a period off it as if it were real time.
-const SPEED = 7.5;
+// The sea runs faster than real time, and the panels say so, so nobody
+// reads a period off it as if it were real time.
+const SPEED = 15;                          // a 3-4 minute exercise needs changes to show within seconds
 
 const TRACE_SECONDS = 180;                  // long enough to hold several wave groups
 const TRACE_HZ = 10;
 const TRACE_N = TRACE_SECONDS * TRACE_HZ;
 const trace = new Float32Array(TRACE_N);
 let traceCount = 0, traceHead = 0, traceTotal = 0, traceClock = 0;
-
-/* ------------------------------------------------------------- the floater
- * A semi-submersible floating turbine, roughly a 15 MW design, in metres
- * about the Probe at x = 0. Drawn, never simulated.
- */
-const FLOATER = {
-  draft: 20, freeboard: 15,
-  columns: [-38, 38], columnW: 12, centre: 8.5,
-  pontoonH: 7,
-  towerBase: 15, towerTop: 145, towerW: [10, 6.5],
-  hub: 150, rotor: 120,
-};
-const VIEW_BOTTOM = -34, VIEW_TOP = 162;   // m, keel to just above the hub
 
 /* ------------------------------------------------------------ rendering */
 
@@ -270,15 +259,15 @@ let W = 0, H = 0, DPR = 1, lay = null;
 function readPalette() {
   const dark = matchMedia('(prefers-color-scheme: dark)').matches;
   return dark ? {
-    accent: '96,165,250', water: '37,99,235', steel: '#cbd5e1', steelLo: '#64748b',
-    shadow: 'rgba(0,0,0,0.35)', seam: 'rgba(255,255,255,0.18)',
-    ink: '#e2e8f0', muted: 'rgba(148,163,184,0.8)', rule: 'rgba(148,163,184,0.22)', warm: '251,146,60',
-    core: 'rgba(191,219,254,0.95)',
+    accent: '96,165,250', ink: '#e2e8f0', muted: 'rgba(148,163,184,0.8)', rule: 'rgba(148,163,184,0.22)',
+    warm: '251,146,60', core: 'rgba(191,219,254,0.95)',
+    gl: { deep: [0.03, 0.12, 0.33], shallow: [0.22, 0.52, 0.92], sky: [0.55, 0.68, 0.9], bg: [0.08, 0.1, 0.13],
+          sideTop: [0.12, 0.33, 0.72], sideBot: [0.02, 0.05, 0.14] },
   } : {
-    accent: '37,99,235', water: '37,99,235', steel: '#1f2937', steelLo: '#4b5563',
-    shadow: 'rgba(15,23,42,0.16)', seam: 'rgba(255,255,255,0.30)',
-    ink: '#0f172a', muted: 'rgba(100,116,139,0.9)', rule: 'rgba(100,116,139,0.25)', warm: '234,88,12',
-    core: 'rgba(191,219,254,0.95)',
+    accent: '37,99,235', ink: '#0f172a', muted: 'rgba(100,116,139,0.9)', rule: 'rgba(100,116,139,0.25)',
+    warm: '234,88,12', core: 'rgba(219,234,254,0.95)',
+    gl: { deep: [0.05, 0.2, 0.5], shallow: [0.36, 0.64, 0.98], sky: [0.93, 0.96, 1.0], bg: [0.9, 0.92, 0.95],
+          sideTop: [0.2, 0.45, 0.9], sideBot: [0.04, 0.11, 0.32] },
   };
 }
 let pal = readPalette();
@@ -294,143 +283,262 @@ function resize() {
   layout();
 }
 
-/**
- * Three bands: the sea, the trace, the spectrum. The sea is drawn at true
- * scale - one metre is the same number of pixels across as up - and cropped
- * from the keel to just above the hub. A narrow window shows less sea rather
- * than squashing it.
- */
+/** Three bands: the sea block, the trace, the spectrum. */
 function layout() {
-  const top = 0;
   const seaH = Math.round(H * 0.46);
   const traceH = Math.round(H * 0.2);
   const specTop = seaH + traceH;
-  const s = Math.max(0.5, Math.min((seaH - 8) / (VIEW_TOP - VIEW_BOTTOM), W / 300));
-  const waterY = top + seaH - 4 + VIEW_BOTTOM * s;             // y of eta = 0
-  const probeX = W * 0.5;
-  const nx = Math.min(700, Math.ceil(W / 2));
-  const xs = new Float64Array(nx + 1);
-  for (let i = 0; i <= nx; i++) xs[i] = ((i / nx) * W - probeX) / s;
-  lay = {
-    seaH, traceTop: seaH, traceH, specTop, specH: H - specTop,
-    s, waterY, probeX, xs, surf: new Float64Array(nx + 1),
-  };
+  lay = { seaH, traceTop: seaH, traceH, specTop, specH: H - specTop };
+  gcv.style.height = seaH + 'px';
+  const bw = Math.round(W * DPR), bh = Math.round(seaH * DPR);
+  if (gcv.width !== bw || gcv.height !== bh) { gcv.width = bw; gcv.height = bh; }
+  fitBlock(W, seaH);
   // Hint at the top right of the spectrum, where the hand will go, clear of
   // the plot's own label on the left.
   hint.style.top = (specTop + 7) + 'px';
 }
 
-const wx = (x) => lay.probeX + x * lay.s;       // world metres to screen
-const wy = (z) => lay.waterY - z * lay.s;
+/* -------------------------------------------------------------- the block
+ * The sea as a slab, seen isometrically from above and to the front-left:
+ * a lit, glossy top surface and a cut-away front face whose top edge is the
+ * wave profile. The sea is long-crested, so the surface only varies along x
+ * (the direction the waves travel); across the slab every crest is a
+ * straight line. No turbine: the Probe is a marker on the front edge.
+ *
+ * Heights are exaggerated EXAG times, and the panel says so. Without it a
+ * 4 m sea on 1.6 km of water is a few pixels thick, and the point of this
+ * view is to see wave groups at a glance.
+ */
+const SPAN = 1600;                          // m along the direction of travel
+const WIDTH = 700;                          // m across, along the crests
+const EXAG = 7;                            // heights drawn this many times larger
+const BASE = -60;                           // bottom of the slab, in drawn metres
+const NX = 1024;
+const DX = SPAN / NX;
+const K_MAX = Math.PI / (2 * DX);           // shortest wave drawn: four samples a wavelength
+const AZ = 16 * Math.PI / 180, EL = 42 * Math.PI / 180;
+const EYE = [-Math.sin(AZ) * Math.cos(EL), -Math.cos(AZ) * Math.cos(EL), Math.sin(EL)];
+const blockXs = Float64Array.from({ length: NX + 1 }, (_, i) => -SPAN / 2 + i * DX);
+const blockZ = new Float64Array(NX + 1);
+const blockSmooth = new Float64Array(NX + 1);
 
-/* The floater, behind the water so its submerged part reads as underwater. */
-function drawFloater() {
-  const F = FLOATER, s = lay.s;
-  ctx.save();
-  ctx.fillStyle = pal.steel;
-  ctx.strokeStyle = pal.steel;
-  // Pontoons and columns.
-  const [cl, cr] = F.columns;
-  ctx.fillRect(wx(cl - F.columnW / 2), wy(-F.draft + F.pontoonH), (cr - cl + F.columnW) * s, F.pontoonH * s);
-  for (const c of [cl, 0, cr]) {
-    const cw = c === 0 ? F.centre : F.columnW;
-    ctx.fillRect(wx(c - cw / 2), wy(F.freeboard), cw * s, (F.freeboard + F.draft) * s);
+/* A few 4x4 matrices, column-major as WebGL wants them. */
+function mat4Mul(a, b) {
+  const o = new Float32Array(16);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+    let s = 0;
+    for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+    o[c * 4 + r] = s;
   }
-  // Deck braces.
-  ctx.lineWidth = Math.max(1, 2.2 * s);
-  ctx.beginPath();
-  ctx.moveTo(wx(cl), wy(F.freeboard - 3)); ctx.lineTo(wx(cr), wy(F.freeboard - 3));
-  ctx.stroke();
-  // Tower, tapering.
-  const g = ctx.createLinearGradient(0, wy(F.towerBase), 0, wy(F.towerTop));
-  g.addColorStop(0, pal.steelLo); g.addColorStop(1, pal.steel);
-  ctx.fillStyle = g;
-  const [wb, wt] = F.towerW;
-  ctx.beginPath();
-  ctx.moveTo(wx(-wb / 2), wy(F.towerBase)); ctx.lineTo(wx(wb / 2), wy(F.towerBase));
-  ctx.lineTo(wx(wt / 2), wy(F.towerTop)); ctx.lineTo(wx(-wt / 2), wy(F.towerTop));
-  ctx.closePath(); ctx.fill();
-  ctx.fillStyle = pal.seam;
-  ctx.fillRect(wx(-wt / 2 + 1), wy(F.towerTop), Math.max(0.6, 1.2 * s), (F.towerTop - F.towerBase) * s);
-  // Nacelle, hub facing the wind on the left, and the rotor seen edge-on,
-  // fading out above the crop.
-  ctx.fillStyle = pal.steel;
-  const nw = 20, nh = 8;
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(wx(-6), wy(F.hub + nh / 2), nw * s, nh * s, 2.5 * s);
-  else ctx.rect(wx(-6), wy(F.hub + nh / 2), nw * s, nh * s);
-  ctx.fill();
-  ctx.beginPath(); ctx.ellipse(wx(-7), wy(F.hub), 3.2 * s, 3.6 * s, 0, 0, Math.PI * 2); ctx.fill();
-  const bx = wx(-9);
-  const blade = ctx.createLinearGradient(0, wy(F.hub - F.rotor), 0, 0);
-  blade.addColorStop(0, pal.steel);
-  blade.addColorStop(1, pal.steel);
-  ctx.strokeStyle = pal.steel;
-  ctx.lineCap = 'round';
-  ctx.lineWidth = Math.max(1.2, 2.6 * s);
-  ctx.beginPath(); ctx.moveTo(bx, wy(F.hub)); ctx.lineTo(bx, wy(F.hub - F.rotor)); ctx.stroke();
-  const up = ctx.createLinearGradient(0, wy(F.hub), 0, 0);
-  up.addColorStop(0, pal.steel); up.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.strokeStyle = up;
-  ctx.beginPath(); ctx.moveTo(bx, wy(F.hub)); ctx.lineTo(bx, Math.min(wy(F.hub + F.rotor), 0)); ctx.stroke();
-  ctx.restore();
+  return o;
+}
+function lookAt(eye, up) {
+  const f = eye.map((v) => -v), n = Math.hypot(...f); const F = f.map((v) => v / n);
+  let S = [F[1] * up[2] - F[2] * up[1], F[2] * up[0] - F[0] * up[2], F[0] * up[1] - F[1] * up[0]];
+  const sn = Math.hypot(...S); S = S.map((v) => v / sn);
+  const U = [S[1] * F[2] - S[2] * F[1], S[2] * F[0] - S[0] * F[2], S[0] * F[1] - S[1] * F[0]];
+  const e = eye;
+  return new Float32Array([
+    S[0], U[0], -F[0], 0, S[1], U[1], -F[1], 0, S[2], U[2], -F[2], 0,
+    -(S[0] * e[0] + S[1] * e[1] + S[2] * e[2]), -(U[0] * e[0] + U[1] * e[1] + U[2] * e[2]), F[0] * e[0] + F[1] * e[1] + F[2] * e[2], 1,
+  ]);
+}
+function ortho(l, r, b, t, n, f) {
+  return new Float32Array([2 / (r - l), 0, 0, 0, 0, 2 / (t - b), 0, 0, 0, 0, -2 / (f - n), 0,
+    -(r + l) / (r - l), -(t + b) / (t - b), -(f + n) / (f - n), 1]);
+}
+function apply(m, x, y, z) {
+  return [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]];
 }
 
+const VIEW = lookAt(EYE.map((v) => v * 2000), [0, 0, 1]);
+let MVP = null;                             // set by fitBlock()
+
+/**
+ * Frame the slab in the panel. The whole block fits if it can; on a narrow
+ * screen the ends are cropped rather than shrinking the waves to nothing.
+ */
+function fitBlock(w, h) {
+  const zTop = 12 * 1.3 * EXAG;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const x of [-SPAN / 2, SPAN / 2]) for (const y of [-WIDTH / 2, WIDTH / 2]) for (const z of [BASE, zTop]) {
+    const p = apply(VIEW, x, y, z);
+    x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
+    z0 = Math.min(z0, p[2]); z1 = Math.max(z1, p[2]);
+  }
+  const padX = 0.03 * (x1 - x0), padY = 0.06 * (y1 - y0);
+  const byW = w / (x1 - x0 + 2 * padX), byH = h / (y1 - y0 + 2 * padY);
+  const scale = Math.min(byH, Math.max(byW, 0.62 * byH));   // px per drawn metre
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2 - 0.02 * (y1 - y0);
+  const hw = w / 2 / scale, hh = h / 2 / scale;
+  MVP = mat4Mul(ortho(cx - hw, cx + hw, cy - hh, cy + hh, -z1 - 100, -z0 + 100), VIEW);
+  blockPx = scale;
+}
+let blockPx = 1;
+
+/** World point to CSS pixels in the sea panel. */
+function project(x, y, z) {
+  const p = apply(MVP, x, y, z);
+  return [(p[0] + 1) / 2 * W, (1 - p[1]) / 2 * lay.seaH];
+}
+
+/* ---- WebGL. If it is not there, the 2D overlay still draws the profile. */
+const gcv = document.getElementById('sea');
+const gl = (() => {
+  try { return gcv.getContext('webgl', { antialias: true, alpha: true, premultipliedAlpha: false }); } catch { return null; }
+})();
+let glp = null;
+
+const VS = `
+attribute vec3 aPos; attribute vec3 aNor;
+uniform mat4 uMVP;
+varying vec3 vP; varying vec3 vN;
+void main() { vP = aPos; vN = aNor; gl_Position = uMVP * vec4(aPos, 1.0); }`;
+const FS = `
+precision mediump float;
+varying vec3 vP; varying vec3 vN;
+uniform float uMode, uCrest, uBase, uHalfW;
+uniform vec3 uSun, uView, uDeep, uShallow, uSky, uBg, uSideTop, uSideBot;
+void main() {
+  if (uMode > 0.5) {
+    // Cut-away face: light near the surface, darkening with depth.
+    float t = clamp((vP.z - uBase) / (-uBase), 0.0, 1.0);
+    gl_FragColor = vec4(mix(uSideBot, uSideTop, t * t), 1.0);
+    return;
+  }
+  vec3 N = normalize(vN), L = normalize(uSun), V = normalize(uView);
+  float diff = max(dot(N, L), 0.0);
+  float spec = pow(max(dot(N, normalize(L + V)), 0.0), 60.0);
+  float fres = pow(1.0 - max(dot(N, V), 0.0), 4.0);
+  // Colour says height, so a group reads as a run of bright crests and dark
+  // troughs and a lull as flat mid-tone; light adds gloss on top.
+  float h = clamp(vP.z / uCrest * 0.55 + 0.5, 0.0, 1.0);
+  h = h * h * (3.0 - 2.0 * h);
+  vec3 c = mix(uDeep, uShallow, h) * (0.7 + 0.35 * diff) + uSky * fres * 0.45 + vec3(0.9) * spec * 0.8;
+  float far = clamp((vP.y + uHalfW) / (2.0 * uHalfW), 0.0, 1.0);   // haze towards the back
+  gl_FragColor = vec4(mix(c, uBg, far * 0.3), 1.0);
+}`;
+
+function initGl() {
+  if (!gl) return;
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+  const u = (n) => gl.getUniformLocation(prog, n);
+  glp = {
+    prog, aPos: gl.getAttribLocation(prog, 'aPos'), aNor: gl.getAttribLocation(prog, 'aNor'),
+    uMVP: u('uMVP'), uMode: u('uMode'), uCrest: u('uCrest'), uBase: u('uBase'), uHalfW: u('uHalfW'),
+    uSun: u('uSun'), uView: u('uView'), uDeep: u('uDeep'), uShallow: u('uShallow'), uSky: u('uSky'),
+    uBg: u('uBg'), uSideTop: u('uSideTop'), uSideBot: u('uSideBot'),
+    top: gl.createBuffer(), front: gl.createBuffer(), end: gl.createBuffer(),
+    topData: new Float32Array((NX + 1) * 2 * 6), frontData: new Float32Array((NX + 1) * 2 * 6),
+    endData: new Float32Array(4 * 6),
+  };
+}
+
+function strip(buf, data, n) {
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(glp.aPos);
+  gl.vertexAttribPointer(glp.aPos, 3, gl.FLOAT, false, 24, 0);
+  gl.enableVertexAttribArray(glp.aNor);
+  gl.vertexAttribPointer(glp.aNor, 3, gl.FLOAT, false, 24, 12);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, n);
+}
+
+function drawGl() {
+  if (!glp || gl.isContextLost()) return;
+  const z = blockZ, hw = WIDTH / 2;
+  const T = glp.topData, Fr = glp.frontData, E = glp.endData;
+  // Normals come from the surface smoothed over an eighth of the peak
+  // wavelength. Short waves are the steepest, so unsmoothed they dominate the
+  // gloss and the slab reads as a barcode; smoothed, the gloss follows the
+  // waves that carry the energy - which is where the groups are.
+  const half = Math.max(1, Math.round((G * tp * tp) / (2 * Math.PI) / 16 / DX));
+  for (let i = 0; i <= NX; i++) {
+    let acc = 0, cnt = 0;
+    for (let j = Math.max(0, i - half); j <= Math.min(NX, i + half); j++) { acc += z[j]; cnt++; }
+    blockSmooth[i] = acc / cnt;
+  }
+  for (let i = 0; i <= NX; i++) {
+    const zl = blockSmooth[Math.max(0, i - 1)], zr = blockSmooth[Math.min(NX, i + 1)];
+    const sx = -(zr - zl) / (2 * DX), n = Math.hypot(sx, 1);
+    const nx = sx / n, nz = 1 / n, x = blockXs[i];
+    T.set([x, -hw, z[i], nx, 0, nz, x, hw, z[i], nx, 0, nz], i * 12);
+    Fr.set([x, -hw, z[i], 0, -1, 0, x, -hw, BASE, 0, -1, 0], i * 12);
+  }
+  const x0 = blockXs[0];
+  E.set([x0, -hw, z[0], -1, 0, 0, x0, -hw, BASE, -1, 0, 0, x0, hw, z[0], -1, 0, 0, x0, hw, BASE, -1, 0, 0]);
+
+  gl.viewport(0, 0, gcv.width, gcv.height);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  gl.useProgram(glp.prog);
+  gl.uniformMatrix4fv(glp.uMVP, false, MVP);
+  gl.uniform1f(glp.uCrest, Math.max(1, hs) * EXAG);
+  gl.uniform1f(glp.uBase, BASE);
+  gl.uniform1f(glp.uHalfW, hw);
+  // Low sun along the direction of travel: a slope's brightness then says how
+  // steep it is, so a group of big waves shows as a patch of strong contrast.
+  gl.uniform3fv(glp.uSun, [-0.85, -0.15, 0.5]);
+  gl.uniform3fv(glp.uView, EYE);
+  const c = pal.gl;
+  gl.uniform3fv(glp.uDeep, c.deep); gl.uniform3fv(glp.uShallow, c.shallow); gl.uniform3fv(glp.uSky, c.sky);
+  gl.uniform3fv(glp.uBg, c.bg); gl.uniform3fv(glp.uSideTop, c.sideTop); gl.uniform3fv(glp.uSideBot, c.sideBot);
+  gl.uniform1f(glp.uMode, 1);
+  strip(glp.front, Fr, (NX + 1) * 2);
+  strip(glp.end, E, 4);
+  gl.uniform1f(glp.uMode, 0);
+  strip(glp.top, T, (NX + 1) * 2);
+}
+
+/** The block, then the 2D marks over it: profile edge, Probe, scale. */
 function drawSea() {
-  const { xs, surf, waterY, seaH, s, probeX } = lay;
-  sea.surface(xs, surf);
-  const n = xs.length;
-  const px = (i) => (i / (n - 1)) * W;
+  sea.surface(blockXs, blockZ, K_MAX);
+  for (let i = 0; i <= NX; i++) blockZ[i] *= EXAG;
+  drawGl();
 
-  drawFloater();
-
-  // Water: the surface, filled down to the bottom of the band.
-  const body = new Path2D();
-  body.moveTo(0, seaH);
-  for (let i = 0; i < n; i++) body.lineTo(px(i), waterY - surf[i] * s);
-  body.lineTo(W, seaH); body.closePath();
-  const g = ctx.createLinearGradient(0, waterY - 10 * s, 0, seaH);
-  g.addColorStop(0, rgba(pal.water, 0.34));
-  g.addColorStop(1, rgba(pal.water, 0.62));
-  ctx.fillStyle = g;
-  ctx.fill(body);
-
-  const line = new Path2D();
-  for (let i = 0; i < n; i++) {
-    const y = waterY - surf[i] * s;
-    if (i === 0) line.moveTo(0, y); else line.lineTo(px(i), y);
+  const hw = WIDTH / 2;
+  // The profile along the front edge, in the traces' glow, so the panels read
+  // as one: it is the same kind of line as the trace below, laid in space.
+  const edge = new Path2D();
+  for (let i = 0; i <= NX; i += 2) {
+    const [sx, sy] = project(blockXs[i], -hw, blockZ[i]);
+    if (i === 0) edge.moveTo(sx, sy); else edge.lineTo(sx, sy);
   }
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  ctx.strokeStyle = rgba(pal.accent, 0.14); ctx.lineWidth = 5; ctx.stroke(line);
-  ctx.strokeStyle = rgba(pal.accent, 0.75); ctx.lineWidth = 1.6; ctx.stroke(line);
+  ctx.strokeStyle = rgba(pal.accent, 0.18); ctx.lineWidth = 4; ctx.stroke(edge);
+  ctx.strokeStyle = pal.core; ctx.lineWidth = 1.2; ctx.stroke(edge);
 
-  // Still-water level, faint, so the heights have something to be read from.
-  ctx.setLineDash([2, 5]);
-  ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(0, Math.round(waterY) + 0.5); ctx.lineTo(W, Math.round(waterY) + 0.5); ctx.stroke();
+  // The Probe: a pin on the front edge at x = 0.
+  const zp = sea.eta(0) * EXAG;
+  const [px, py] = project(0, -hw, zp);
+  const [bx, by] = project(0, -hw, BASE);
+  ctx.setLineDash([2, 4]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(bx, by); ctx.stroke();
   ctx.setLineDash([]);
+  const glow = ctx.createRadialGradient(px, py, 2, px, py, 14);
+  glow.addColorStop(0, rgba(pal.warm, 0.45)); glow.addColorStop(1, rgba(pal.warm, 0));
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(px, py, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = rgba(pal.warm, 1);
+  ctx.beginPath(); ctx.arc(px, py, 4.5, 0, Math.PI * 2); ctx.fill();
 
-  // The Probe, riding the surface between the columns.
-  const e = sea.eta(0);
-  const y = waterY - e * s;
-  const glow = ctx.createRadialGradient(probeX, y, 2, probeX, y, 14);
-  glow.addColorStop(0, rgba(pal.accent, 0.35)); glow.addColorStop(1, rgba(pal.accent, 0));
-  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(probeX, y, 14, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = rgba(pal.accent, 1);
-  ctx.beginPath(); ctx.arc(probeX, y, 4.5, 0, Math.PI * 2); ctx.fill();
-
-  // A scale bar, so "true scale" can be checked rather than taken on trust.
-  const bar = s * 50 >= 60 ? 50 : 100;
-  const bx0 = 14, by = seaH - 14;
-  ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1.4;
-  ctx.beginPath();
-  ctx.moveTo(bx0, by - 4); ctx.lineTo(bx0, by); ctx.lineTo(bx0 + bar * s, by); ctx.lineTo(bx0 + bar * s, by - 4);
-  ctx.stroke();
-  ctx.fillStyle = 'rgba(255,255,255,0.9)';
-  ctx.font = `600 10px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-  ctx.fillText(bar + ' m', bx0 + 4, by - 3);
-  ctx.textAlign = 'right';
-  ctx.fillText(SPEED + '× speed', W - 14, by + 1);
+  // Scale: 500 m along the bottom front edge, and what heights are multiplied by.
+  const [ax, ay] = project(-SPAN / 2 + 40, -hw, BASE);
+  const [cx2, cy2] = project(-SPAN / 2 + 540, -hw, BASE);
+  ctx.strokeStyle = pal.muted; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(ax, ay + 8); ctx.lineTo(cx2, cy2 + 8); ctx.stroke();
+  for (const [qx, qy] of [[ax, ay], [cx2, cy2]]) { ctx.beginPath(); ctx.moveTo(qx, qy + 4); ctx.lineTo(qx, qy + 12); ctx.stroke(); }
+  ctx.fillStyle = pal.muted; ctx.font = `600 10px ${FONT}`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText('500 m', (ax + cx2) / 2, (ay + cy2) / 2 + 12);
+  ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+  ctx.fillText(`heights ×${EXAG}  ·  ${SPEED}× speed  →  waves travel this way`, W - 14, lay.seaH - 8);
 }
 
 /* The trace: the Pile lab's, glow and all, on a small offscreen canvas. */
@@ -502,7 +610,7 @@ function drawTrace(dt) {
 
   ctx.font = `600 10px ${FONT}`; ctx.textBaseline = 'top';
   ctx.fillStyle = pal.muted; ctx.textAlign = 'left';
-  ctx.fillText('SURFACE AT THE FLOATER  ·  LAST 3 MIN  ·  ' + SPEED + '× SPEED', 14, traceTop + 6);
+  ctx.fillText('SURFACE AT THE PROBE  ·  LAST 3 MIN  ·  ' + SPEED + '× SPEED', 14, traceTop + 6);
   ctx.fillStyle = rgba(pal.warm, 0.85); ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
   ctx.fillText('+Hs/2', W - 10, Math.round(traceTop + yOf(hs / 2)) - 2);
   ctx.textBaseline = 'top';
@@ -734,6 +842,7 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+initGl();
 new ResizeObserver(resize).observe(cv);
 resize();
 showGamma();

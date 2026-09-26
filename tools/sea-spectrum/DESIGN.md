@@ -40,6 +40,11 @@ weight.
   bar makes "true scale" checkable.
 - **Probe fixed at the Floater**, between its columns. ±Hs/2 dashed lines on
   the trace.
+- **The sea runs at 7.5× real time** (changed 2026-09-26 after trying it).
+  At real speed the waves were too slow and a change took minutes to work
+  through the trace, so the effect of a slider was hard to see. The trace
+  still holds 3 minutes of sea, which now passes in 24 s. Both the sea and
+  the trace say "7.5× speed", so a period is not read off as real time.
 - The trace holds **3 minutes**, not 90 s: at Tp = 10 s a wave group lasts
   about a minute, and 90 s barely held one.
 - The page opens with the trace already full, three minutes of sea run on

@@ -237,6 +237,11 @@ let seed = 1;
 const sea = createSea(seed);
 sea.setState(hs, tp, gamma);
 
+// The sea runs faster than real time. At real speed a change took minutes to
+// work through the trace, and a Tp of 10 s is a long wait for a wave; the
+// panels say so, so nobody reads a period off it as if it were real time.
+const SPEED = 7.5;
+
 const TRACE_SECONDS = 180;                  // long enough to hold several wave groups
 const TRACE_HZ = 10;
 const TRACE_N = TRACE_SECONDS * TRACE_HZ;
@@ -424,6 +429,8 @@ function drawSea() {
   ctx.fillStyle = 'rgba(255,255,255,0.9)';
   ctx.font = `600 10px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
   ctx.fillText(bar + ' m', bx0 + 4, by - 3);
+  ctx.textAlign = 'right';
+  ctx.fillText(SPEED + '× speed', W - 14, by + 1);
 }
 
 /* The trace: the Pile lab's, glow and all, on a small offscreen canvas. */
@@ -495,7 +502,7 @@ function drawTrace(dt) {
 
   ctx.font = `600 10px ${FONT}`; ctx.textBaseline = 'top';
   ctx.fillStyle = pal.muted; ctx.textAlign = 'left';
-  ctx.fillText('SURFACE AT THE FLOATER  ·  LAST 3 MIN', 14, traceTop + 6);
+  ctx.fillText('SURFACE AT THE FLOATER  ·  LAST 3 MIN  ·  ' + SPEED + '× SPEED', 14, traceTop + 6);
   ctx.fillStyle = rgba(pal.warm, 0.85); ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
   ctx.fillText('+Hs/2', W - 10, Math.round(traceTop + yOf(hs / 2)) - 2);
   ctx.textBaseline = 'top';
@@ -709,7 +716,8 @@ function frame(now) {
   last = now;
   // Advance in trace-sized steps where one falls due, so every sample is taken
   // at its own moment rather than at whatever the frame rate happens to be.
-  let remaining = dt;
+  // dt is screen time (the axis easing uses it); the sea runs on sea time.
+  let remaining = dt * SPEED;
   while (traceClock + remaining >= 1 / TRACE_HZ) {
     const step = 1 / TRACE_HZ - traceClock;
     sea.advance(step);

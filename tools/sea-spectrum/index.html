@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sea lab</title>
+<style>
+  :root {
+    --ground-hi: #eef1f7; --ground-mid: #e5eaf3; --ground-lo: #d9dfeb;
+    --glass: rgba(255,255,255,.72); --glass-edge: rgba(15,23,42,.10);
+    --ink: #0f172a; --soft: #475569; --muted: #8a94a2;
+    --accent: #2563eb; --sky: rgba(255,255,255,.55);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground-hi: #1a1f29; --ground-mid: #141922; --ground-lo: #0e1219;
+      --glass: rgba(30,36,48,.72); --glass-edge: rgba(226,232,240,.10);
+      --ink: #e2e8f0; --soft: #c3cbd6; --muted: #8b95a5;
+      --accent: #60a5fa; --sky: rgba(148,163,184,.08);
+    }
+  }
+  html, body { margin: 0; height: 100%; width: 100%; overflow: hidden; }
+  /* The same ground as the Pile lab, so the tools read as one family. */
+  body {
+    background:
+      radial-gradient(120% 85% at 50% -8%, var(--sky), rgba(255,255,255,0) 58%),
+      radial-gradient(140% 120% at 50% 50%, rgba(15,23,42,0) 55%, rgba(15,23,42,.07) 100%),
+      linear-gradient(180deg, var(--ground-hi) 0%, var(--ground-mid) 46%, var(--ground-lo) 100%);
+    background-color: var(--ground-mid);
+    font: 500 13px/1.35 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--ink);
+    -webkit-text-size-adjust: 100%;
+  }
+  canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+
+  /* The only chrome: gamma, and a fresh set of random phases. Hs and Tp live
+     on the spectrum's peak. */
+  .glass {
+    position: fixed; top: 12px; z-index: 2;
+    background: var(--glass); border: 1px solid var(--glass-edge);
+    border-radius: 11px; box-shadow: 0 1px 3px rgba(15,23,42,.08);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  #shape { left: 12px; padding: 7px 11px 4px; display: flex; flex-direction: column; gap: 1px; width: min(230px, 52vw); }
+  #shape .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  #shape label { color: var(--soft); font-weight: 600; font-size: 12px; letter-spacing: .02em; }
+  #shape output { font-variant-numeric: tabular-nums; color: var(--ink); font-size: 12px; }
+  #shape input { width: 100%; margin: 2px 0 0; accent-color: var(--accent); height: 22px; }
+  /* Notches under the slider. A range thumb is ~16px wide, so a value's
+     centre sits at p * (100% - 16px) + 8px, not at p * 100%. */
+  .notches { position: relative; height: 13px; }
+  .notch {
+    position: absolute; top: 0; transform: translateX(-50%);
+    font-size: 10px; color: var(--muted); white-space: nowrap; letter-spacing: .02em;
+  }
+  .notch::before {
+    content: ""; position: absolute; left: 50%; top: -5px; width: 1px; height: 4px; background: var(--muted);
+  }
+  .notch.first { transform: none; }
+  .notch.first::before { left: 0; }
+  #newsea {
+    right: 12px; height: 34px; padding: 0 14px; cursor: pointer;
+    font: 600 12px/1 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--soft); letter-spacing: .03em;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #newsea:hover, #newsea:focus-visible { color: var(--ink); }
+  #newsea:focus-visible, #shape input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  #hint {
+    position: fixed; right: 16px; z-index: 1;
+    font: 500 clamp(10px, 1.2vw, 12px)/1.4 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    letter-spacing: .02em; color: var(--muted); white-space: nowrap; pointer-events: none;
+    opacity: 0; transition: opacity .7s ease; user-select: none;
+  }
+  #hint.show { opacity: 1; }
+  #hint b { font-weight: 700; color: var(--soft); }
+  @media (prefers-reduced-motion: reduce) { #hint { transition: none; } }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="A floating wind turbine in an irregular sea, the surface elevation at the turbine over time, and the JONSWAP spectrum. Drag the spectrum's peak to change Hs and Tp."></canvas>
+
+<div id="shape" class="glass">
+  <div class="row"><label for="gamma">Peak enhancement γ</label><output id="gammaOut" for="gamma"></output></div>
+  <input type="range" id="gamma" min="1" max="7" step="0.1" value="3.3">
+  <div class="notches" aria-hidden="true">
+    <span class="notch first" style="left: 0" title="Pierson–Moskowitz: a fully developed sea">1 · P–M</span>
+    <span class="notch" style="left: calc(0.3833 * (100% - 16px) + 8px)">3.3 · North Sea</span>
+  </div>
+</div>
+<button id="newsea" class="glass" type="button">New sea</button>
+<div id="hint"><b>Drag</b> the spectrum's peak · slide <b>γ</b></div>
+
+<script>
+/* ---------------------------------------------------------------- physics
+ *
+ * A long-crested irregular sea in deep water: a sum of linear waves whose
+ * amplitudes come from a JONSWAP spectrum and whose phases are random.
+ *
+ * The spectrum is the Hs-normalised form (as in DNV-RP-C205): its area is
+ * exactly Hs^2/16 for every gamma, so gamma changes the spectrum's shape and
+ * never the energy in the sea. The usual 1 - 0.287 ln(gamma) factor is only an
+ * approximation of that, so the normalisation is computed instead.
+ *
+ * verify.mjs slices this section out by its first line and the "state" banner
+ * below, and checks it against theory. Keep both markers.
+ */
+const G = 9.81;
+const HS_RANGE = [0.5, 12];                 // m
+const TP_RANGE = [4, 16];                   // s
+const STEEPNESS_LIMIT = 1 / 15;             // Hs over the peak wavelength; steeper seas break
+const N_WAVES = 256;                        // components in the sum
+const NU_LO = 0.55, NU_HI = 4.0;            // their frequencies, as multiples of the peak's
+
+/** Unnormalised JONSWAP shape at nu = f / fp. */
+function shape(nu, gamma) {
+  if (nu <= 0) return 0;
+  const sigma = nu <= 1 ? 0.07 : 0.09;
+  const r = Math.exp(-((nu - 1) ** 2) / (2 * sigma * sigma));
+  return nu ** -5 * Math.exp(-1.25 * nu ** -4) * gamma ** r;
+}
+
+/** The constant that makes the area Hs^2/16, integrated once per gamma. */
+const normCache = new Map();
+function norm(gamma) {
+  const key = Math.round(gamma * 1e4);
+  let c = normCache.get(key);
+  if (c === undefined) {
+    // Simpson on [0.2, 10]; below 0.2 the shape is below 1e-300, above 10 it
+    // is nu^-5 to within 1e-4, whose tail integral is 10^-4 / 4.
+    const a = 0.2, b = 10, n = 19600, h = (b - a) / n;
+    let s = shape(a, gamma) + shape(b, gamma);
+    for (let i = 1; i < n; i++) s += (i % 2 ? 4 : 2) * shape(a + i * h, gamma);
+    const integral = (s * h) / 3 + 1e-4 / 4;
+    c = 1 / (16 * integral);
+    normCache.set(key, c);
+  }
+  return c;
+}
+
+/** JONSWAP S(f) in m^2/Hz. */
+function spectrum(f, hs, tp, gamma) {
+  return hs * hs * tp * norm(gamma) * shape(f * tp, gamma);
+}
+
+/** The largest Hs that does not break at this Tp: Hs / lambda_p = 1/15. */
+function hsLimit(tp) { return (STEEPNESS_LIMIT * G * tp * tp) / (2 * Math.PI); }
+
+/** Keep a sea state inside the ranges and below the breaking limit. */
+function clampSeaState(hs, tp) {
+  const t = Math.min(TP_RANGE[1], Math.max(TP_RANGE[0], tp));
+  const h = Math.min(HS_RANGE[1], hsLimit(t), Math.max(HS_RANGE[0], hs));
+  return { hs: h, tp: t };
+}
+
+/** A small seeded generator, so the same seed gives the same sea. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * One Sea: a fixed set of random phases, re-tuned whenever the spectrum
+ * changes. Each component's phase advances by its own frequency and is
+ * integrated rather than computed as omega*t, so a change of Tp alters how
+ * fast each wave travels from now on without teleporting it: the sea being
+ * watched morphs into the new one instead of being replaced.
+ *
+ * Frequencies sit at random points inside equal bins, so no two are in
+ * simple ratio and the sea never visibly repeats.
+ */
+function createSea(seed) {
+  const rand = mulberry32(seed);
+  const jitter = new Float64Array(N_WAVES).map(() => rand());
+  const phases = new Float64Array(N_WAVES);
+  const theta = new Float64Array(N_WAVES);  // accumulated omega * t
+  const f = new Float64Array(N_WAVES), w = new Float64Array(N_WAVES);
+  const k = new Float64Array(N_WAVES), amp = new Float64Array(N_WAVES);
+  const arg = new Float64Array(N_WAVES);
+  let roll = mulberry32(seed * 7919 + 1);
+
+  function newPhases() { for (let i = 0; i < N_WAVES; i++) phases[i] = 2 * Math.PI * roll(); }
+  newPhases();
+
+  return {
+    get phases() { return phases; },
+    get amplitudes() { return amp; },
+    get frequencies() { return f; },
+
+    setState(hs, tp, gamma) {
+      const dnu = (NU_HI - NU_LO) / N_WAVES;
+      for (let i = 0; i < N_WAVES; i++) {
+        const nu = NU_LO + (i + jitter[i]) * dnu;
+        f[i] = nu / tp;
+        w[i] = 2 * Math.PI * f[i];
+        k[i] = (w[i] * w[i]) / G;             // deep water
+        amp[i] = Math.sqrt(2 * spectrum(f[i], hs, tp, gamma) * (dnu / tp));
+      }
+    },
+
+    advance(dt) { for (let i = 0; i < N_WAVES; i++) theta[i] += w[i] * dt; },
+
+    /** Surface elevation at x (m); waves travel towards +x. */
+    eta(x) {
+      let s = 0;
+      for (let i = 0; i < N_WAVES; i++) s += amp[i] * Math.cos(k[i] * x - theta[i] + phases[i]);
+      return s;
+    },
+
+    /** The whole surface at once: one pass per component, not per point. */
+    surface(xs, out) {
+      out.fill(0);
+      for (let i = 0; i < N_WAVES; i++) {
+        const a = amp[i];
+        if (a < 1e-5) continue;
+        const ki = k[i], c = phases[i] - theta[i];
+        for (let j = 0; j < xs.length; j++) out[j] += a * Math.cos(ki * xs[j] + c);
+      }
+      return out;
+    },
+
+    newSea() { newPhases(); },
+  };
+}
+
+/* --------------------------------------------------------------- state */
+
+let hs = 4, tp = 10, gamma = 3.3;
+let seed = 1;
+const sea = createSea(seed);
+sea.setState(hs, tp, gamma);
+
+const TRACE_SECONDS = 180;                  // long enough to hold several wave groups
+const TRACE_HZ = 10;
+const TRACE_N = TRACE_SECONDS * TRACE_HZ;
+const trace = new Float32Array(TRACE_N);
+let traceCount = 0, traceHead = 0, traceTotal = 0, traceClock = 0;
+
+/* ------------------------------------------------------------- the floater
+ * A semi-submersible floating turbine, roughly a 15 MW design, in metres
+ * about the Probe at x = 0. Drawn, never simulated.
+ */
+const FLOATER = {
+  draft: 20, freeboard: 15,
+  columns: [-38, 38], columnW: 12, centre: 8.5,
+  pontoonH: 7,
+  towerBase: 15, towerTop: 145, towerW: [10, 6.5],
+  hub: 150, rotor: 120,
+};
+const VIEW_BOTTOM = -34, VIEW_TOP = 162;   // m, keel to just above the hub
+
+/* ------------------------------------------------------------ rendering */
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, lay = null;
+
+function readPalette() {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  return dark ? {
+    accent: '96,165,250', water: '37,99,235', steel: '#cbd5e1', steelLo: '#64748b',
+    shadow: 'rgba(0,0,0,0.35)', seam: 'rgba(255,255,255,0.18)',
+    ink: '#e2e8f0', muted: 'rgba(148,163,184,0.8)', rule: 'rgba(148,163,184,0.22)', warm: '251,146,60',
+    core: 'rgba(191,219,254,0.95)',
+  } : {
+    accent: '37,99,235', water: '37,99,235', steel: '#1f2937', steelLo: '#4b5563',
+    shadow: 'rgba(15,23,42,0.16)', seam: 'rgba(255,255,255,0.30)',
+    ink: '#0f172a', muted: 'rgba(100,116,139,0.9)', rule: 'rgba(100,116,139,0.25)', warm: '234,88,12',
+    core: 'rgba(191,219,254,0.95)',
+  };
+}
+let pal = readPalette();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { pal = readPalette(); });
+const rgba = (c, a) => `rgba(${c},${Math.max(0, a).toFixed(3)})`;
+const FONT = 'system-ui,-apple-system,"Segoe UI",Arial,sans-serif';
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = cv.clientWidth; H = cv.clientHeight;
+  const bw = Math.round(W * DPR), bh = Math.round(H * DPR);
+  if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+  layout();
+}
+
+/**
+ * Three bands: the sea, the trace, the spectrum. The sea is drawn at true
+ * scale - one metre is the same number of pixels across as up - and cropped
+ * from the keel to just above the hub. A narrow window shows less sea rather
+ * than squashing it.
+ */
+function layout() {
+  const top = 0;
+  const seaH = Math.round(H * 0.46);
+  const traceH = Math.round(H * 0.2);
+  const specTop = seaH + traceH;
+  const s = Math.max(0.5, Math.min((seaH - 8) / (VIEW_TOP - VIEW_BOTTOM), W / 300));
+  const waterY = top + seaH - 4 + VIEW_BOTTOM * s;             // y of eta = 0
+  const probeX = W * 0.5;
+  const nx = Math.min(700, Math.ceil(W / 2));
+  const xs = new Float64Array(nx + 1);
+  for (let i = 0; i <= nx; i++) xs[i] = ((i / nx) * W - probeX) / s;
+  lay = {
+    seaH, traceTop: seaH, traceH, specTop, specH: H - specTop,
+    s, waterY, probeX, xs, surf: new Float64Array(nx + 1),
+  };
+  // Hint at the top right of the spectrum, where the hand will go, clear of
+  // the plot's own label on the left.
+  hint.style.top = (specTop + 7) + 'px';
+}
+
+const wx = (x) => lay.probeX + x * lay.s;       // world metres to screen
+const wy = (z) => lay.waterY - z * lay.s;
+
+/* The floater, behind the water so its submerged part reads as underwater. */
+function drawFloater() {
+  const F = FLOATER, s = lay.s;
+  ctx.save();
+  ctx.fillStyle = pal.steel;
+  ctx.strokeStyle = pal.steel;
+  // Pontoons and columns.
+  const [cl, cr] = F.columns;
+  ctx.fillRect(wx(cl - F.columnW / 2), wy(-F.draft + F.pontoonH), (cr - cl + F.columnW) * s, F.pontoonH * s);
+  for (const c of [cl, 0, cr]) {
+    const cw = c === 0 ? F.centre : F.columnW;
+    ctx.fillRect(wx(c - cw / 2), wy(F.freeboard), cw * s, (F.freeboard + F.draft) * s);
+  }
+  // Deck braces.
+  ctx.lineWidth = Math.max(1, 2.2 * s);
+  ctx.beginPath();
+  ctx.moveTo(wx(cl), wy(F.freeboard - 3)); ctx.lineTo(wx(cr), wy(F.freeboard - 3));
+  ctx.stroke();
+  // Tower, tapering.
+  const g = ctx.createLinearGradient(0, wy(F.towerBase), 0, wy(F.towerTop));
+  g.addColorStop(0, pal.steelLo); g.addColorStop(1, pal.steel);
+  ctx.fillStyle = g;
+  const [wb, wt] = F.towerW;
+  ctx.beginPath();
+  ctx.moveTo(wx(-wb / 2), wy(F.towerBase)); ctx.lineTo(wx(wb / 2), wy(F.towerBase));
+  ctx.lineTo(wx(wt / 2), wy(F.towerTop)); ctx.lineTo(wx(-wt / 2), wy(F.towerTop));
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = pal.seam;
+  ctx.fillRect(wx(-wt / 2 + 1), wy(F.towerTop), Math.max(0.6, 1.2 * s), (F.towerTop - F.towerBase) * s);
+  // Nacelle, hub facing the wind on the left, and the rotor seen edge-on,
+  // fading out above the crop.
+  ctx.fillStyle = pal.steel;
+  const nw = 20, nh = 8;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(wx(-6), wy(F.hub + nh / 2), nw * s, nh * s, 2.5 * s);
+  else ctx.rect(wx(-6), wy(F.hub + nh / 2), nw * s, nh * s);
+  ctx.fill();
+  ctx.beginPath(); ctx.ellipse(wx(-7), wy(F.hub), 3.2 * s, 3.6 * s, 0, 0, Math.PI * 2); ctx.fill();
+  const bx = wx(-9);
+  const blade = ctx.createLinearGradient(0, wy(F.hub - F.rotor), 0, 0);
+  blade.addColorStop(0, pal.steel);
+  blade.addColorStop(1, pal.steel);
+  ctx.strokeStyle = pal.steel;
+  ctx.lineCap = 'round';
+  ctx.lineWidth = Math.max(1.2, 2.6 * s);
+  ctx.beginPath(); ctx.moveTo(bx, wy(F.hub)); ctx.lineTo(bx, wy(F.hub - F.rotor)); ctx.stroke();
+  const up = ctx.createLinearGradient(0, wy(F.hub), 0, 0);
+  up.addColorStop(0, pal.steel); up.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.strokeStyle = up;
+  ctx.beginPath(); ctx.moveTo(bx, wy(F.hub)); ctx.lineTo(bx, Math.min(wy(F.hub + F.rotor), 0)); ctx.stroke();
+  ctx.restore();
+}
+
+function drawSea() {
+  const { xs, surf, waterY, seaH, s, probeX } = lay;
+  sea.surface(xs, surf);
+  const n = xs.length;
+  const px = (i) => (i / (n - 1)) * W;
+
+  drawFloater();
+
+  // Water: the surface, filled down to the bottom of the band.
+  const body = new Path2D();
+  body.moveTo(0, seaH);
+  for (let i = 0; i < n; i++) body.lineTo(px(i), waterY - surf[i] * s);
+  body.lineTo(W, seaH); body.closePath();
+  const g = ctx.createLinearGradient(0, waterY - 10 * s, 0, seaH);
+  g.addColorStop(0, rgba(pal.water, 0.34));
+  g.addColorStop(1, rgba(pal.water, 0.62));
+  ctx.fillStyle = g;
+  ctx.fill(body);
+
+  const line = new Path2D();
+  for (let i = 0; i < n; i++) {
+    const y = waterY - surf[i] * s;
+    if (i === 0) line.moveTo(0, y); else line.lineTo(px(i), y);
+  }
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = rgba(pal.accent, 0.14); ctx.lineWidth = 5; ctx.stroke(line);
+  ctx.strokeStyle = rgba(pal.accent, 0.75); ctx.lineWidth = 1.6; ctx.stroke(line);
+
+  // Still-water level, faint, so the heights have something to be read from.
+  ctx.setLineDash([2, 5]);
+  ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, Math.round(waterY) + 0.5); ctx.lineTo(W, Math.round(waterY) + 0.5); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // The Probe, riding the surface between the columns.
+  const e = sea.eta(0);
+  const y = waterY - e * s;
+  const glow = ctx.createRadialGradient(probeX, y, 2, probeX, y, 14);
+  glow.addColorStop(0, rgba(pal.accent, 0.35)); glow.addColorStop(1, rgba(pal.accent, 0));
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(probeX, y, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = rgba(pal.accent, 1);
+  ctx.beginPath(); ctx.arc(probeX, y, 4.5, 0, Math.PI * 2); ctx.fill();
+
+  // A scale bar, so "true scale" can be checked rather than taken on trust.
+  const bar = s * 50 >= 60 ? 50 : 100;
+  const bx0 = 14, by = seaH - 14;
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(bx0, by - 4); ctx.lineTo(bx0, by); ctx.lineTo(bx0 + bar * s, by); ctx.lineTo(bx0 + bar * s, by - 4);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.font = `600 10px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.fillText(bar + ' m', bx0 + 4, by - 3);
+}
+
+/* The trace: the Pile lab's, glow and all, on a small offscreen canvas. */
+let goff = null, gctx = null, traceRef = 3;
+function drawTrace(dt) {
+  const { traceTop, traceH } = lay;
+  const gh = traceH, gw = W;
+  if (gh < 30 || traceCount < 2) return;
+  const GDPR = Math.min(DPR, 1.25);
+  if (!goff) { goff = document.createElement('canvas'); gctx = goff.getContext('2d'); }
+  const dw = Math.max(1, Math.round(gw * GDPR)), dh = Math.max(1, Math.round(gh * GDPR));
+  if (goff.width !== dw || goff.height !== dh) { goff.width = dw; goff.height = dh; }
+  const g = gctx;
+  g.setTransform(GDPR, 0, 0, GDPR, 0, 0);
+  g.clearRect(0, 0, gw, gh);
+
+  // Vertical scale in metres: room for Hs either way, growing at once if a
+  // crest needs more, relaxing slowly.
+  let peak = 0;
+  for (let i = 0; i < traceCount; i++) peak = Math.max(peak, Math.abs(trace[i]));
+  const target = Math.max(0.95 * hs, peak * 1.08);
+  traceRef += (target - traceRef) * Math.min(1, dt * (target > traceRef ? 10 : 0.6));
+
+  const mid = gh * 0.54, amp = gh * 0.40, pxs = gw / (TRACE_N - 1), n = traceCount;
+  const xOf = (i) => gw - (n - 1 - i) * pxs;
+  const at = (i) => trace[(traceHead - n + i + TRACE_N) % TRACE_N];
+  const yOf = (v) => mid - (v / traceRef) * amp;
+
+  // Ten-second marks.
+  const oldest = traceTotal - n, every = 10 * TRACE_HZ;
+  g.strokeStyle = rgba(pal.accent, 0.10); g.lineWidth = 1;
+  g.beginPath();
+  for (let a = Math.ceil(oldest / every) * every; a < traceTotal; a += every) {
+    const x = Math.round(xOf(a - oldest)) + 0.5;
+    g.moveTo(x, gh * 0.14); g.lineTo(x, gh * 0.94);
+  }
+  g.stroke();
+  g.strokeStyle = rgba(pal.accent, 0.20);
+  g.beginPath(); g.moveTo(0, Math.round(mid) + 0.5); g.lineTo(gw, Math.round(mid) + 0.5); g.stroke();
+
+  const line = new Path2D();
+  for (let i = 0; i < n; i++) { const y = yOf(at(i)); if (i === 0) line.moveTo(xOf(i), y); else line.lineTo(xOf(i), y); }
+  const area = new Path2D(line);
+  area.lineTo(xOf(n - 1), mid); area.lineTo(xOf(0), mid); area.closePath();
+  const fg = g.createLinearGradient(0, mid - amp, 0, mid + amp);
+  fg.addColorStop(0, rgba(pal.accent, 0.02)); fg.addColorStop(0.5, rgba(pal.accent, 0.28)); fg.addColorStop(1, rgba(pal.accent, 0.02));
+  g.fillStyle = fg; g.fill(area);
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.strokeStyle = rgba(pal.accent, 0.13); g.lineWidth = Math.max(4, gh * 0.04); g.stroke(line);
+  g.strokeStyle = rgba(pal.accent, 0.6); g.lineWidth = Math.max(1.8, gh * 0.014); g.stroke(line);
+  g.strokeStyle = pal.core; g.lineWidth = 1; g.stroke(line);
+
+  // +-Hs/2: individual crests go past these all the time.
+  g.setLineDash([5, 5]);
+  g.strokeStyle = rgba(pal.warm, 0.55); g.lineWidth = 1;
+  for (const v of [hs / 2, -hs / 2]) {
+    const y = Math.round(yOf(v)) + 0.5;
+    g.beginPath(); g.moveTo(0, y); g.lineTo(gw, y); g.stroke();
+  }
+  g.setLineDash([]);
+
+  const fw = Math.min(gw * 0.17, 240);
+  g.globalCompositeOperation = 'destination-out';
+  const lg = g.createLinearGradient(0, 0, fw, 0);
+  lg.addColorStop(0, 'rgba(0,0,0,1)'); lg.addColorStop(0.45, 'rgba(0,0,0,0.45)'); lg.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = lg; g.fillRect(0, 0, fw, gh);
+  g.globalCompositeOperation = 'source-over';
+  ctx.drawImage(goff, 0, traceTop, gw, gh);
+
+  ctx.font = `600 10px ${FONT}`; ctx.textBaseline = 'top';
+  ctx.fillStyle = pal.muted; ctx.textAlign = 'left';
+  ctx.fillText('SURFACE AT THE FLOATER  ·  LAST 3 MIN', 14, traceTop + 6);
+  ctx.fillStyle = rgba(pal.warm, 0.85); ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+  ctx.fillText('+Hs/2', W - 10, Math.round(traceTop + yOf(hs / 2)) - 2);
+  ctx.textBaseline = 'top';
+  ctx.fillText('−Hs/2', W - 10, Math.round(traceTop + yOf(-hs / 2)) + 3);
+}
+
+/* The spectrum, with its peak as the handle. */
+const F_MAX = 0.5;                                  // Hz shown
+let specTopS = 10;                                  // current top of the S axis, m^2/Hz
+let dragging = null;
+
+function niceStep(range) {
+  const raw = range / 4, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p;
+  return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p;
+}
+
+function specGeom() {
+  const { specTop, specH } = lay;
+  const left = 46, right = W - 18, top = specTop + 26, bottom = specTop + specH - 30;
+  return { left, right, top, bottom, fx: (f) => left + (f / F_MAX) * (right - left), sy: (v) => bottom - (v / specTopS) * (bottom - top) };
+}
+
+function drawSpectrum(dt) {
+  const G2 = specGeom();
+  const { left, right, top, bottom, fx, sy } = G2;
+  if (bottom - top < 30) return;
+  const peak = spectrum(1 / tp, hs, tp, gamma);
+
+  // The axis follows the curve: it eases towards putting the peak two thirds
+  // of the way up, and never lets the peak leave the plot.
+  const target = peak / 0.64;
+  specTopS += (target - specTopS) * Math.min(1, dt * (dragging ? 1.2 : 3));
+  specTopS = Math.max(specTopS, peak / 0.9);
+
+  ctx.font = `500 10px ${FONT}`;
+  ctx.strokeStyle = pal.rule; ctx.lineWidth = 1; ctx.fillStyle = pal.muted;
+  // Frequency axis.
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.beginPath(); ctx.moveTo(left, Math.round(bottom) + 0.5); ctx.lineTo(right, Math.round(bottom) + 0.5); ctx.stroke();
+  for (let f = 0; f <= F_MAX + 1e-9; f += 0.1) {
+    const x = Math.round(fx(f)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, bottom); ctx.lineTo(x, bottom + 4); ctx.stroke();
+    ctx.fillText(f.toFixed(1), x, bottom + 6);
+  }
+  ctx.textAlign = 'right';
+  ctx.fillText('f  (Hz)', right, bottom + 17);
+  // S axis, with nice ticks that relabel as it rescales.
+  const step = niceStep(specTopS);
+  ctx.textBaseline = 'middle';
+  for (let v = step; v < specTopS; v += step) {
+    const y = Math.round(sy(v)) + 0.5;
+    ctx.strokeStyle = pal.rule;
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.globalAlpha = 0.45; ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.fillText(v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toPrecision(1), left - 6, y);
+  }
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.font = `600 10px ${FONT}`;
+  ctx.fillText('SPECTRUM  S(f)  m²/Hz', 14, lay.specTop + 8);
+
+  // The breaking limit: where the peak would sit at the steepest sea for each
+  // Tp. The handle cannot go above it.
+  ctx.setLineDash([3, 4]);
+  ctx.strokeStyle = rgba(pal.warm, 0.5); ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  let started = false;
+  for (let t = TP_RANGE[0]; t <= TP_RANGE[1] + 1e-9; t += 0.1) {
+    const hl = Math.min(HS_RANGE[1], hsLimit(t));
+    const v = spectrum(1 / t, hl, t, gamma);
+    const x = fx(1 / t), y = sy(v);
+    if (y < top - 2) { started = false; continue; }
+    if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // The curve.
+  const line = new Path2D();
+  const N = 360;
+  for (let i = 0; i <= N; i++) {
+    const f = (i / N) * F_MAX, y = sy(spectrum(f, hs, tp, gamma));
+    if (i === 0) line.moveTo(fx(f), y); else line.lineTo(fx(f), y);
+  }
+  const area = new Path2D(line);
+  area.lineTo(fx(F_MAX), bottom); area.lineTo(fx(0), bottom); area.closePath();
+  const fg = ctx.createLinearGradient(0, top, 0, bottom);
+  fg.addColorStop(0, rgba(pal.accent, 0.30)); fg.addColorStop(1, rgba(pal.accent, 0.04));
+  ctx.fillStyle = fg; ctx.fill(area);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = rgba(pal.accent, 0.14); ctx.lineWidth = 6; ctx.stroke(line);
+  ctx.strokeStyle = rgba(pal.accent, 0.7); ctx.lineWidth = 2.2; ctx.stroke(line);
+  ctx.strokeStyle = pal.core; ctx.lineWidth = 1; ctx.stroke(line);
+
+  // The handle, and the sea state it sets.
+  const hx = fx(1 / tp), hy = sy(peak);
+  const r = dragging ? 10 : 8.5;
+  const glow = ctx.createRadialGradient(hx, hy, 3, hx, hy, 24);
+  glow.addColorStop(0, rgba(pal.accent, 0.3)); glow.addColorStop(1, rgba(pal.accent, 0));
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(hx, hy, 24, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = rgba(pal.accent, 1);
+  ctx.beginPath(); ctx.arc(hx, hy, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath(); ctx.arc(hx - 2.4, hy - 2.6, 2.3, 0, Math.PI * 2); ctx.fill();
+
+  const label = `Hs ${hs.toFixed(1)} m   Tp ${tp.toFixed(1)} s`;
+  ctx.font = `650 12px ${FONT}`;
+  const tw = ctx.measureText(label).width + 16, th = 22;
+  let lx = hx + 16, ly = hy - th - 6;
+  if (lx + tw > W - 6) lx = hx - 16 - tw;
+  if (ly < lay.specTop + 22) ly = hy + 12;
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--glass');
+  ctx.strokeStyle = rgba(pal.accent, 0.45); ctx.lineWidth = 1;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(lx, ly, tw, th, 7); else ctx.rect(lx, ly, tw, th);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = pal.ink; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, lx + 8, ly + th / 2 + 0.5);
+}
+
+function render(dt) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  drawSea();
+  drawTrace(dt);
+  drawSpectrum(dt);
+}
+
+/* ------------------------------------------------------------ the hand */
+
+const hint = document.getElementById('hint');
+const hintTimer = setTimeout(() => hint.classList.add('show'), 700);
+function dismissHint() { clearTimeout(hintTimer); hint.classList.remove('show'); }
+
+function local(e) { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+
+function nearHandle(p) {
+  const { fx, sy, top, bottom } = specGeom();
+  const hx = fx(1 / tp), hy = sy(spectrum(1 / tp, hs, tp, gamma));
+  // Generous: the handle itself, or anywhere in the plot straight below it.
+  return Math.hypot(p.x - hx, p.y - hy) < 30 || (Math.abs(p.x - hx) < 24 && p.y > hy && p.y < bottom + 4 && p.y > top - 10);
+}
+
+/**
+ * Sideways sets Tp absolutely: the handle stays under the finger. Up and
+ * down scale Hs multiplicatively, relative to where the drag began, because
+ * the peak's height goes as Hs squared: no fixed axis could show 0.5 m and
+ * 12 m at once, so the axis rescales underneath and the handle is drawn
+ * wherever the peak ends up.
+ */
+cv.addEventListener('pointerdown', (e) => {
+  if (dragging || !e.isPrimary) return;
+  const p = local(e);
+  if (!nearHandle(p)) return;
+  dragging = { id: e.pointerId, y0: p.y, hs0: hs };
+  cv.setPointerCapture(e.pointerId);
+  cv.style.cursor = 'grabbing';
+  dismissHint();
+  e.preventDefault();
+});
+cv.addEventListener('pointermove', (e) => {
+  const p = local(e);
+  if (!dragging) { cv.style.cursor = nearHandle(p) ? 'grab' : 'default'; return; }
+  if (e.pointerId !== dragging.id) return;
+  const { fx, left, right } = specGeom();
+  const f = Math.max(1e-3, ((Math.min(right, Math.max(left, p.x)) - left) / (right - left)) * F_MAX);
+  const wanted = dragging.hs0 * Math.exp(-(p.y - dragging.y0) / 110);
+  const next = clampSeaState(wanted, 1 / f);
+  void fx;
+  hs = next.hs; tp = next.tp;
+  sea.setState(hs, tp, gamma);
+});
+function endDrag(e) {
+  if (!dragging || e.pointerId !== dragging.id) return;
+  dragging = null;
+  cv.style.cursor = 'default';
+}
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', endDrag);
+cv.addEventListener('lostpointercapture', endDrag);
+
+/* ------------------------------------------------------------- controls */
+
+const gammaIn = document.getElementById('gamma');
+const gammaOut = document.getElementById('gammaOut');
+function showGamma() { gammaOut.textContent = gamma.toFixed(1); }
+gammaIn.addEventListener('input', () => {
+  gamma = Number(gammaIn.value);
+  sea.setState(hs, tp, gamma);
+  showGamma();
+  dismissHint();
+});
+document.getElementById('newsea').addEventListener('click', () => {
+  sea.newSea();
+  sea.setState(hs, tp, gamma);
+});
+
+/* ----------------------------------------------------------------- loop */
+
+// Open mid-storm rather than on a flat calm: run the sea forward a few
+// minutes so the trace is already full when the page appears.
+for (let i = 0; i < TRACE_N; i++) {
+  sea.advance(1 / TRACE_HZ);
+  trace[traceHead] = sea.eta(0);
+  traceHead = (traceHead + 1) % TRACE_N;
+  traceCount = Math.min(TRACE_N, traceCount + 1);
+  traceTotal++;
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  // Advance in trace-sized steps where one falls due, so every sample is taken
+  // at its own moment rather than at whatever the frame rate happens to be.
+  let remaining = dt;
+  while (traceClock + remaining >= 1 / TRACE_HZ) {
+    const step = 1 / TRACE_HZ - traceClock;
+    sea.advance(step);
+    remaining -= step;
+    traceClock = 0;
+    trace[traceHead] = sea.eta(0);
+    traceHead = (traceHead + 1) % TRACE_N;
+    traceCount = Math.min(TRACE_N, traceCount + 1);
+    traceTotal++;
+  }
+  sea.advance(remaining);
+  traceClock += remaining;
+  render(dt);
+  requestAnimationFrame(frame);
+}
+
+new ResizeObserver(resize).observe(cv);
+resize();
+showGamma();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

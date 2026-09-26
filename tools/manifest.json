@@ -2,6 +2,7 @@
   "tools": [
     "modal-beam",
     "floating-stability",
-    "pile-modes"
+    "pile-modes",
+    "sea-spectrum"
   ]
 }

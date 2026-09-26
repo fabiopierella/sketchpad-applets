@@ -1,0 +1,8 @@
+{
+  "name": "Sea lab",
+  "description": "An irregular sea around a floating wind turbine, at true scale. Drag the JONSWAP spectrum's peak to set Hs and Tp, change the peak enhancement factor, and watch the sea and the surface at the turbine change with them.",
+  "status": "live",
+  "entry": "index.html",
+  "tags": ["waves", "offshore", "metocean"],
+  "course": "46000 Introduction to Wind Energy"
+}

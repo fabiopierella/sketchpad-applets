@@ -393,12 +393,12 @@ function readPalette() {
   return dark ? {
     accent: '96,165,250', warm: '251,146,60', steel: '#cbd5e1', steelLo: '#64748b',
     ink: '#e2e8f0', muted: 'rgba(148,163,184,0.8)', rule: 'rgba(148,163,184,0.22)',
-    core: 'rgba(191,219,254,0.95)', label: 'rgba(226,232,240,0.92)',
+    core: 'rgba(191,219,254,0.95)', label: 'rgba(226,232,240,0.92)', halo: 'rgba(20,25,34,0.7)',
     mid: [30, 36, 48], slow: [59, 130, 246], slowHi: [147, 197, 253], fast: [234, 88, 12], fastHi: [253, 186, 116],
   } : {
     accent: '37,99,235', warm: '234,88,12', steel: '#1f2937', steelLo: '#4b5563',
     ink: '#0f172a', muted: 'rgba(100,116,139,0.9)', rule: 'rgba(100,116,139,0.25)',
-    core: 'rgba(191,219,254,0.95)', label: 'rgba(15,23,42,0.85)',
+    core: 'rgba(191,219,254,0.95)', label: 'rgba(15,23,42,0.85)', halo: 'rgba(241,244,249,0.75)',
     mid: [241, 244, 249], slow: [96, 145, 240], slowHi: [29, 58, 160], fast: [245, 140, 80], fastHi: [170, 50, 8],
   };
 }
@@ -422,6 +422,16 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', setPalet
 const rgba = (c, a) => `rgba(${c},${Math.max(0, a).toFixed(3)})`;
 const FONT = 'system-ui,-apple-system,"Segoe UI",Arial,sans-serif';
 
+/** Text with a halo in the ground colour, so it reads over any patch of the field. */
+function haloText(text, x, y) {
+  ctx.save();
+  ctx.lineJoin = 'round'; ctx.lineWidth = 3;
+  ctx.strokeStyle = pal.halo;
+  ctx.strokeText(text, x, y);
+  ctx.restore();
+  ctx.fillText(text, x, y);
+}
+
 function resize() {
   DPR = Math.min(2, window.devicePixelRatio || 1);
   W = cv.clientWidth; H = cv.clientHeight;
@@ -441,7 +451,9 @@ function layout() {
   const picH = Math.round(avail * 0.42);
   const traceH = Math.round(avail * 0.22);
   const s = (picH - 4) / Z_TOP;             // px per metre
-  const rotorX = Math.round(Math.min(W * 0.3, 60 + ROTOR_R * s * 0.3));
+  // The Rotor in the middle: air still to come on the left, air already
+  // measured on the right.
+  const rotorX = Math.round(W / 2);
   const cols = Math.max(2, Math.ceil(W / 2));
   lay = {
     picH, s, rotorX, cols,
@@ -496,19 +508,30 @@ function drawField() {
 
   ctx.font = `600 10px ${FONT}`; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
   ctx.fillStyle = pal.label;
-  ctx.fillText(W < 560 ? 'WIND FIELD  u′  →' : 'WIND FIELD  u′  ·  FROZEN, CARRIED PAST AT U  →', 14, 10);
+  haloText(W < 560 ? 'WIND FIELD  u′  →' : 'WIND FIELD  u′  ·  FROZEN, CARRIED PAST AT U  →', 14, 10);
 
-  // Scale bar and colour key along the bottom edge.
-  const bar = s * 50 >= 60 ? 50 : 100;
-  const bx0 = 14, by = picH - 12;
-  ctx.strokeStyle = pal.label; ctx.lineWidth = 1.4;
-  ctx.beginPath();
-  ctx.moveTo(bx0, by - 4); ctx.lineTo(bx0, by); ctx.lineTo(bx0 + bar * s, by); ctx.lineTo(bx0 + bar * s, by - 4);
-  ctx.stroke();
-  ctx.fillStyle = pal.label; ctx.textBaseline = 'bottom';
-  ctx.fillText(bar + ' m', bx0 + 4, by - 3);
+  // Axes on the picture's own edges, in metres: height up the left, distance
+  // from the Rotor along the bottom. They replace a scale bar nobody noticed.
+  ctx.strokeStyle = pal.label; ctx.fillStyle = pal.label; ctx.lineWidth = 1;
+  ctx.font = `500 10px ${FONT}`;
+  const zStep = s * 50 >= 36 ? 50 : 100;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  for (let z = zStep; z < Z_TOP; z += zStep) {
+    const y = Math.round(wy(z)) + 0.5;
+    if (y < 28) continue;                    // clear of the title
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(6, y); ctx.stroke();
+    haloText(z + ' m', 9, y);
+  }
+  const xStep = [50, 100, 200, 500, 1000].find((v) => v * s >= 70) || 1000;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  for (let x = Math.ceil(-lay.rotorX / s / xStep) * xStep; wx(x) < W; x += xStep) {
+    const X = Math.round(wx(x)) + 0.5;
+    if (X < 40) continue;                     // clear of the height labels
+    ctx.beginPath(); ctx.moveTo(X, picH - 2); ctx.lineTo(X, picH - 8); ctx.stroke();
+    haloText(x === 0 ? '0' : (x > 0 ? '+' : '−') + Math.abs(x) + ' m', X, picH - 10);
+  }
 
-  const kw = Math.min(120, W * 0.25), kx = W - 14 - kw, ky = by - 7;
+  const kw = Math.min(120, W * 0.25), kx = W - 14 - kw, ky = picH - 44;
   const g = ctx.createLinearGradient(kx, 0, kx + kw, 0);
   for (let i = 0; i <= 8; i++) {
     const k = Math.round((i / 8) * 255) * 3;
@@ -517,9 +540,9 @@ function drawField() {
   ctx.fillStyle = g; ctx.fillRect(kx, ky, kw, 7);
   ctx.strokeStyle = pal.rule; ctx.lineWidth = 1; ctx.strokeRect(kx + 0.5, ky + 0.5, kw - 1, 6);
   ctx.fillStyle = pal.label; ctx.textBaseline = 'bottom';
-  ctx.textAlign = 'left'; ctx.fillText('slower', kx, ky - 2);
-  ctx.textAlign = 'right'; ctx.fillText('faster', kx + kw, ky - 2);
-  if (kw >= 110) { ctx.textAlign = 'center'; ctx.fillText('u′/σ', kx + kw / 2, ky - 2); }
+  ctx.textAlign = 'left'; haloText('slower', kx, ky - 2);
+  ctx.textAlign = 'right'; haloText('faster', kx + kw, ky - 2);
+  if (kw >= 110) { ctx.textAlign = 'center'; haloText('u′/σ', kx + kw / 2, ky - 2); }
 }
 
 /* The Rotor, edge-on, with its tower fading out below: there is no ground. */
@@ -547,7 +570,7 @@ function drawRotor() {
   ctx.restore();
 }
 
-/* The trace: u at the Probe over the last ten minutes. */
+/* The trace: u at the Probe over the last two minutes. */
 let goff = null, gctx = null, traceLo = 0, traceHi = 20;
 function drawTrace(dt) {
   const { traceTop, traceH } = lay;
@@ -566,7 +589,7 @@ function drawTrace(dt) {
   const k = Math.min(1, dt * 4);
   traceLo += (0 - traceLo) * k;
   traceHi += (2 * U - traceHi) * k;
-  const top = gh * 0.16, bottom = gh * 0.96;
+  const top = gh * 0.16, bottom = gh - 16;
   const yOf = (v) => bottom - ((v - traceLo) / (traceHi - traceLo)) * (bottom - top);
   // Sample i was taken (TRACE_N - 1 - i) dt + lag seconds ago, so the trace
   // slides smoothly between samples rather than jumping one at a time.
@@ -581,13 +604,21 @@ function drawTrace(dt) {
   g.fillStyle = rgba(pal.accent, 0.07);
   g.fillRect(bandX, top - 4, gw - bandX, bottom - top + 4);
 
-  // Ten-second marks, travelling with the trace.
-  g.lineWidth = 1;
-  for (let m = Math.ceil((clock - TRACE_SHOW) / 10) * 10; m <= clock; m += 10) {
-    const x = Math.round(gw - ((clock - m) / TRACE_SHOW) * gw) + 0.5;
-    g.strokeStyle = rgba(pal.accent, m % 60 === 0 ? 0.2 : 0.09);
-    g.beginPath(); g.moveTo(x, top); g.lineTo(x, bottom); g.stroke();
+  // A fixed time axis, as on an oscilloscope: the trace slides past it.
+  const tStep = gw / (TRACE_SHOW / 20) >= 60 ? 20 : 40;
+  g.lineWidth = 1; g.strokeStyle = rgba(pal.accent, 0.12);
+  g.beginPath();
+  for (let t = tStep; t < TRACE_SHOW; t += tStep) {
+    const x = Math.round(gw - (t / TRACE_SHOW) * gw) + 0.5;
+    g.moveTo(x, top); g.lineTo(x, bottom);
   }
+  g.stroke();
+  // Wind speed gridlines.
+  const vStep = niceStep(traceHi - traceLo);
+  g.strokeStyle = rgba(pal.accent, 0.08);
+  g.beginPath();
+  for (let v = vStep; v < traceHi; v += vStep) { const y = Math.round(yOf(v)) + 0.5; g.moveTo(0, y); g.lineTo(gw, y); }
+  g.stroke();
 
   // About one sample per screen pixel. All 8192 zig-zagging under a glow cost
   // more than the rest of the frame put together. Which samples are kept is
@@ -619,28 +650,55 @@ function drawTrace(dt) {
   ctx.font = `600 10px ${FONT}`; ctx.textBaseline = 'top';
   ctx.fillStyle = pal.muted; ctx.textAlign = 'left';
   ctx.fillText('WIND SPEED AT HUB HEIGHT  ·  LAST 2 MIN', 14, traceTop + 6);
-  if (gw - bandX > 70) {
+  if (gw - bandX > 70 && W > 520) {
     ctx.textAlign = 'right';
     ctx.fillText('STILL IN THE PICTURE', W - 10, traceTop + 6);
   }
   ctx.font = `500 10px ${FONT}`;
-  ctx.fillStyle = rgba(pal.warm, 0.9); ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-  ctx.fillText('U + σ', 8, Math.round(traceTop + yOf(U + sigma())) - 2);
+  ctx.fillStyle = rgba(pal.warm, 0.9); ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+  ctx.fillText('U + σ', W - 8, Math.round(traceTop + yOf(U + sigma())) - 2);
   ctx.textBaseline = 'top';
-  ctx.fillText('U − σ', 8, Math.round(traceTop + yOf(U - sigma())) + 3);
+  ctx.fillText('U − σ', W - 8, Math.round(traceTop + yOf(U - sigma())) + 3);
+  // Axis labels: m/s up the left, seconds ago along the bottom.
+  ctx.fillStyle = pal.muted; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  for (let v = vStep; v < traceHi; v += vStep) {
+    const y = traceTop + yOf(v);
+    if (y > traceTop + 20 && y < traceTop + bottom - 4) haloText(v + (v + vStep >= traceHi ? ' m/s' : ''), 8, y);
+  }
+  ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+  for (let t = tStep; t < TRACE_SHOW; t += tStep) ctx.fillText('−' + t + ' s', gw - (t / TRACE_SHOW) * gw, traceTop + bottom + 3);
+  ctx.textAlign = 'right';
+  ctx.fillText('now', W - 8, traceTop + bottom + 3);
 }
 
-/* The Kaimal spectrum, log-log, as f S(f) so the peak shows where the energy is. */
-const F_LO = 1e-3, F_HI = 2;                // Hz
-const FS_LO = 1e-4, FS_HI = 30;             // (m/s)^2
+function niceStep(range) {
+  const raw = range / 4, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p;
+  return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p;
+}
 
-function drawSpectrum() {
+/*
+ * The Kaimal spectrum as f S(f) on a log frequency axis with a linear
+ * vertical one: the "premultiplied" form, in which equal areas under the
+ * curve are equal variance. Log-log made a tail of 1e-4 look as present as a
+ * peak of 1; fully linear crushed the peak into the first pixel.
+ */
+const F_LO = 1e-3, F_HI = 2;                // Hz
+let specTopV = 1;                           // current top of the vertical axis, (m/s)^2
+
+function drawSpectrum(dt) {
   const { specTop, specH } = lay;
   const left = 46, right = W - 18, top = specTop + 26, bottom = specTop + specH - 28;
   if (bottom - top < 30) return;
+  const sg = sigma();
+  // The axis follows the curve, as the Sea lab's does: it eases towards
+  // putting the peak about two thirds of the way up. The peak of f S is at
+  // f = U/(4L), where it is 0.2169 sigma^2 whatever U and L are.
+  const peak = (U / (4 * L)) * kaimal(U / (4 * L), U, sg, L);
+  specTopV += (peak / 0.66 - specTopV) * Math.min(1, dt * 3);
+  specTopV = Math.max(specTopV, peak / 0.92);
   const lx = (f) => left + (Math.log10(f / F_LO) / Math.log10(F_HI / F_LO)) * (right - left);
-  const ly = (v) => bottom - (Math.log10(v / FS_LO) / Math.log10(FS_HI / FS_LO)) * (bottom - top);
-  const clipY = (y) => Math.max(top, Math.min(bottom, y));
+  const ly = (v) => bottom - (v / specTopV) * (bottom - top);
+  const clipY = (y) => Math.max(top - 2, Math.min(bottom, y));
 
   ctx.font = `500 10px ${FONT}`;
   ctx.strokeStyle = pal.rule; ctx.lineWidth = 1; ctx.fillStyle = pal.muted;
@@ -652,21 +710,23 @@ function drawSpectrum() {
     ctx.fillText(String(f), x, bottom + 5);
   }
   ctx.textAlign = 'right';
-  ctx.fillText('f  (Hz)', right, bottom + 16);
+  ctx.fillText('f  (Hz, log scale)', right, bottom + 16);
   ctx.textBaseline = 'middle';
-  for (let e = -4; e <= 1; e++) {
-    const y = Math.round(ly(10 ** e)) + 0.5;
+  const step = niceStep(specTopV);
+  for (let v = step; v < specTopV; v += step) {
+    const y = Math.round(ly(v)) + 0.5;
     ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke(); ctx.globalAlpha = 1;
-    ctx.fillText(e === 0 ? '1' : e === 1 ? '10' : '10' + ['⁻⁴', '⁻³', '⁻²', '⁻¹'][e + 4], left - 6, y);
+    ctx.fillText(v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toPrecision(1), left - 6, y);
   }
+  ctx.fillText('0', left - 6, bottom);
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
   ctx.font = `600 10px ${FONT}`;
-  ctx.fillText('KAIMAL SPECTRUM  f·S(f)  (m/s)²', 14, specTop + 8);
+  ctx.fillText(W < 560 ? 'KAIMAL  f·S(f)  (m/s)²' : 'KAIMAL SPECTRUM  f·S(f)  (m/s)²  ·  AREA UNDER THE CURVE = VARIANCE', 14, specTop + 8);
 
   ctx.save();
-  ctx.beginPath(); ctx.rect(left, top - 2, right - left, bottom - top + 4); ctx.clip();
+  ctx.beginPath(); ctx.rect(left, top - 4, right - left, bottom - top + 6); ctx.clip();
 
-  // The estimate from the ten minutes on the trace, faint, behind the model.
+  // The estimate from the ten-minute record, faint, behind the model.
   // It stops at half the field grid's Nyquist, U / (4 DX): past that the
   // interpolation between grid points, not the wind, sets what it shows.
   const fMax = Math.min(U / (4 * DX), 0.8 * TRACE_N / (2 * TRACE_SECONDS));
@@ -674,18 +734,17 @@ function drawSpectrum() {
   const est = new Path2D();
   let first = true;
   for (const p of estimate) {
-    if (p.f > fMax || p.S <= 0) continue;
+    if (p.f > fMax) continue;
     const x = lx(p.f), y = clipY(ly(p.f * p.S));
     if (first) { est.moveTo(x, y); first = false; } else est.lineTo(x, y);
   }
   ctx.stroke(est);
   for (const p of estimate) {
-    if (p.f > fMax || p.S <= 0) continue;
+    if (p.f > fMax) continue;
     ctx.beginPath(); ctx.arc(lx(p.f), clipY(ly(p.f * p.S)), 1.8, 0, Math.PI * 2); ctx.fill();
   }
 
   // The model.
-  const sg = sigma();
   const line = new Path2D();
   const N = 240;
   for (let i = 0; i <= N; i++) {
@@ -694,27 +753,14 @@ function drawSpectrum() {
     if (i === 0) line.moveTo(lx(f), y); else line.lineTo(lx(f), y);
   }
   const area = new Path2D(line);
-  area.lineTo(lx(F_HI), bottom + 4); area.lineTo(lx(F_LO), bottom + 4); area.closePath();
+  area.lineTo(lx(F_HI), bottom); area.lineTo(lx(F_LO), bottom); area.closePath();
   const fg = ctx.createLinearGradient(0, top, 0, bottom);
-  fg.addColorStop(0, rgba(pal.accent, 0.24)); fg.addColorStop(1, rgba(pal.accent, 0.03));
+  fg.addColorStop(0, rgba(pal.accent, 0.28)); fg.addColorStop(1, rgba(pal.accent, 0.06));
   ctx.fillStyle = fg; ctx.fill(area);
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   ctx.strokeStyle = rgba(pal.accent, 0.14); ctx.lineWidth = 6; ctx.stroke(line);
   ctx.strokeStyle = rgba(pal.accent, 0.75); ctx.lineWidth = 2.2; ctx.stroke(line);
   ctx.strokeStyle = pal.core; ctx.lineWidth = 1; ctx.stroke(line);
-
-  // The -5/3 law: f S falls as f^(-2/3). A short guide just above the curve,
-  // a decade past the peak.
-  const fp = U / (4 * L);
-  const f1 = Math.min(fp * 20, F_HI / 8), f2 = f1 * 6;
-  const lift = 2.4;
-  ctx.setLineDash([4, 4]); ctx.strokeStyle = pal.muted; ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(lx(f1), ly(lift * f1 * kaimal(f1, U, sg, L)));
-  ctx.lineTo(lx(f2), ly(lift * f1 * kaimal(f1, U, sg, L) * (f2 / f1) ** (-2 / 3)));
-  ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle = pal.muted; ctx.font = `600 10px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-  ctx.fillText('−5/3', lx(Math.sqrt(f1 * f2)) + 4, ly(lift * f1 * kaimal(f1, U, sg, L) * (Math.sqrt(f2 / f1)) ** (-2 / 3)) - 3);
   ctx.restore();
 
   // Key.
@@ -730,7 +776,7 @@ function render(dt) {
   ctx.clearRect(0, 0, W, H);
   drawField();
   drawTrace(dt);
-  drawSpectrum();
+  drawSpectrum(dt);
 }
 
 /* ------------------------------------------------------------- controls */

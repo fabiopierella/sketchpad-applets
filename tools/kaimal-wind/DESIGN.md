@@ -79,8 +79,28 @@ the tool is built so that this can be seen.
   deliberately noisy at the low end, where a 10-minute record holds only a
   handful of cycles. It stops at U/(4·DX), past which the field grid rather
   than the wind shapes what it shows.
-- **Log–log f·S(f)**, with a −5/3 guide. The Sea lab chose linear axes; here
-  they would hide both the peak and the inertial range.
+- **f·S(f) on a log frequency axis with a linear vertical one** (changed
+  2026-09-28, from log–log with a −5/3 guide). Log–log made a tail at 10⁻⁴
+  look as present as a peak at 1, which misleads anyone who does not read
+  log axes for a living. Fully linear was turned down too: the peak, near
+  0.007 Hz, would sit in the first pixel of a 0–2 Hz axis. This premultiplied
+  form has one property a non-expert can use: **equal areas under the curve
+  are equal variance**, and the plot's title says so. The cost is the −5/3
+  law, which is no longer a straight line, so its guide was dropped. The
+  vertical axis eases to keep the peak about two thirds of the way up, as the
+  Sea lab's does. TI therefore shows in the relabelled ticks and in the
+  trace's swing, not in the curve's height: σ² spans a factor of about 1500
+  across the knobs, and no fixed axis holds that. On a linear axis the
+  estimate's scatter at the low end is plain to see. That is honest: a
+  10-minute record holds only a few cycles there.
+- **The Rotor sits in the middle of the picture** (2026-09-28). Air still to
+  come is on the left, air already measured on the right, and the shaded end
+  of the trace is the right half.
+- **Axes instead of a scale bar** (2026-09-28). The picture carries height in
+  metres up its left edge and distance from the Rotor along its bottom. The
+  trace carries m/s up the left and a fixed time axis from −120 s to "now",
+  as on an oscilloscope: the trace slides past the grid, and the grid stays
+  put. Labels on the picture have a halo so they read over any colour.
 - **Sliders, not a handle on the peak** as in the Sea lab. The peak's
   position is set by U/L, so dragging it sideways would not say which of the
   two it meant.
@@ -112,7 +132,8 @@ the tool is built so that this can be seen.
 ## Verification (`verify.mjs`)
 
 - The Kaimal spectrum integrates to σ², f·S peaks at U/(4L), and the slope
-  tends to −5/3. The IEC normal turbulence intensity is checked by hand.
+  tends to −5/3 (the plot no longer shows the slope, but the model is
+  unchanged). The IEC normal turbulence intensity is checked by hand.
 - Averaged over 16 fields, each height's variance matches the resolved
   Kaimal variance, and the coherence between two heights, estimated with a
   DFT written in the test, matches the IEC formula in two wavenumber bands.

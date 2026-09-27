@@ -1,0 +1,12 @@
+{
+  "name": "Wind lab",
+  "description": "Turbulent wind passing a rotor, frozen and carried along at the mean speed. Change the mean wind, turbulence intensity, length scale and coherence, and watch the hub-height record and its Kaimal spectrum follow - or, for coherence, not.",
+  "status": "live",
+  "entry": "index.html",
+  "tags": [
+    "wind",
+    "turbulence",
+    "metocean"
+  ],
+  "course": "46000 Introduction to Wind Energy"
+}

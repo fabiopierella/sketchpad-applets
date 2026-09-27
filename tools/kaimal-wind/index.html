@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wind lab</title>
+<style>
+  :root {
+    --ground-hi: #eef1f7; --ground-mid: #e5eaf3; --ground-lo: #d9dfeb;
+    --glass: rgba(255,255,255,.72); --glass-edge: rgba(15,23,42,.10);
+    --ink: #0f172a; --soft: #475569; --muted: #8a94a2;
+    --accent: #2563eb; --sky: rgba(255,255,255,.55);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground-hi: #1a1f29; --ground-mid: #141922; --ground-lo: #0e1219;
+      --glass: rgba(30,36,48,.72); --glass-edge: rgba(226,232,240,.10);
+      --ink: #e2e8f0; --soft: #c3cbd6; --muted: #8b95a5;
+      --accent: #60a5fa; --sky: rgba(148,163,184,.08);
+    }
+  }
+  html, body { margin: 0; height: 100%; width: 100%; overflow: hidden; }
+  /* The same ground as the Pile and Sea labs, so the tools read as one family. */
+  body {
+    background:
+      radial-gradient(120% 85% at 50% -8%, var(--sky), rgba(255,255,255,0) 58%),
+      radial-gradient(140% 120% at 50% 50%, rgba(15,23,42,0) 55%, rgba(15,23,42,.07) 100%),
+      linear-gradient(180deg, var(--ground-hi) 0%, var(--ground-mid) 46%, var(--ground-lo) 100%);
+    background-color: var(--ground-mid);
+    font: 500 13px/1.35 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--ink);
+    -webkit-text-size-adjust: 100%;
+  }
+  canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+
+  .glass {
+    position: fixed; z-index: 2;
+    background: var(--glass); border: 1px solid var(--glass-edge);
+    border-radius: 11px; box-shadow: 0 1px 3px rgba(15,23,42,.08);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  /* Four knobs in a strip along the bottom: one row on a wide screen, two on a
+     phone. The picture keeps the top of the window to itself. */
+  #knobs {
+    left: 8px; right: 8px; bottom: 8px; padding: 6px 10px 3px;
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 18px; row-gap: 2px;
+  }
+  @media (max-width: 620px) { #knobs { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; } }
+  .knob { display: flex; flex-direction: column; min-width: 0; }
+  .knob .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .knob label { color: var(--soft); font-weight: 600; font-size: 12px; letter-spacing: .02em; white-space: nowrap; }
+  .knob output { font-variant-numeric: tabular-nums; color: var(--ink); font-size: 12px; white-space: nowrap; }
+  .knob input { width: 100%; margin: 2px 0 0; accent-color: var(--accent); height: 22px; }
+  /* Notches under a slider. A range thumb is ~16px wide, so a value's centre
+     sits at p * (100% - 16px) + 8px, not at p * 100%. */
+  .notches { position: relative; height: 13px; }
+  .notch {
+    position: absolute; top: 0; transform: translateX(-50%);
+    font-size: 10px; color: var(--muted); white-space: nowrap; letter-spacing: .02em;
+  }
+  .notch::before {
+    content: ""; position: absolute; left: 50%; top: -5px; width: 1px; height: 4px; background: var(--muted);
+  }
+  .notch.first { transform: none; }
+  .notch.first::before { left: 0; }
+  .notch.last { transform: translateX(-100%); }
+  .notch.last::before { left: 100%; }
+  @media (max-width: 620px) { .notch.wide { visibility: hidden; } }
+  #newfield {
+    top: 12px; right: 12px; height: 34px; padding: 0 14px; cursor: pointer;
+    font: 600 12px/1 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--soft); letter-spacing: .03em;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #newfield:hover, #newfield:focus-visible { color: var(--ink); }
+  #newfield:focus-visible, .knob input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  #hint {
+    position: fixed; right: 16px; z-index: 1;
+    font: 500 clamp(10px, 1.2vw, 12px)/1.4 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    letter-spacing: .02em; color: var(--muted); white-space: nowrap; pointer-events: none;
+    opacity: 0; transition: opacity .7s ease; user-select: none;
+  }
+  #hint.show { opacity: 1; }
+  #hint b { font-weight: 700; color: var(--soft); }
+  @media (prefers-reduced-motion: reduce) { #hint { transition: none; } }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="A turbulent wind field passing a wind turbine rotor, the wind speed at hub height over time, and the Kaimal spectrum, with sliders for mean wind speed, turbulence intensity, length scale and coherence."></canvas>
+
+<button id="newfield" class="glass" type="button">New field</button>
+
+<div id="knobs" class="glass">
+  <div class="knob">
+    <div class="row"><label for="u">Mean wind U</label><output id="uOut" for="u"></output></div>
+    <input type="range" id="u" min="4" max="25" step="0.5" value="10">
+    <div class="notches" aria-hidden="true"></div>
+  </div>
+  <div class="knob">
+    <div class="row"><label for="ti">Turbulence TI</label><output id="tiOut" for="ti"></output></div>
+    <input type="range" id="ti" min="5" max="40" step="0.1" value="18.3">
+    <div class="notches" id="tiNotches" aria-hidden="true">
+      <span class="notch" data-iref="0.12" title="IEC class C, normal turbulence at this U">C</span>
+      <span class="notch" data-iref="0.14" title="IEC class B, normal turbulence at this U">B</span>
+      <span class="notch" data-iref="0.16" title="IEC class A, normal turbulence at this U">A</span>
+    </div>
+  </div>
+  <div class="knob">
+    <div class="row"><label for="len">Length scale L</label><output id="lenOut" for="len"></output></div>
+    <!-- Logarithmic: the slider holds log10(L). -->
+    <input type="range" id="len" min="1.69897" max="3" step="0.005" value="2.5318">
+    <div class="notches" aria-hidden="true">
+      <span class="notch" style="left: calc(0.6401 * (100% - 16px) + 8px)" title="IEC 61400-1: 8.1 × 42 m, above 60 m">IEC</span>
+    </div>
+  </div>
+  <div class="knob">
+    <div class="row"><label for="coh">Coherence decay a</label><output id="cohOut" for="coh"></output></div>
+    <!-- 0 to 60, and the last step is "independent" (a = infinity). -->
+    <input type="range" id="coh" min="0" max="64" step="1" value="12">
+    <div class="notches" aria-hidden="true">
+      <span class="notch first wide" style="left: 0" title="Every height moves together">coherent</span>
+      <span class="notch" style="left: calc(0.1875 * (100% - 16px) + 8px)" title="IEC 61400-1 exponential coherence">IEC</span>
+      <span class="notch last" style="left: 100%" title="No two heights related at all">indep.</span>
+    </div>
+  </div>
+</div>
+<div id="hint">Slide <b>a</b>: the field changes, the spectrum does not</div>
+
+<script>
+/* ---------------------------------------------------------------- physics
+ *
+ * The longitudinal gust u' over a vertical plane along the wind, from the IEC
+ * 61400-1 Kaimal spectrum and exponential coherence.
+ *
+ * The Kaimal spectrum is a one-point spectrum: it says how the variance at one
+ * height is spread over frequency, and nothing about how two heights relate.
+ * The coherence is the second ingredient, and without it there is no field.
+ *
+ * Frozen turbulence (Taylor): the field is generated in space, x metres
+ * downwind, and carried past at U without changing. Both the spectrum and the
+ * coherence depend on frequency only through f/U, a wavenumber, so the field's
+ * shape in space depends on L and a alone. U sets only how fast it passes.
+ *
+ * The field is built one wavenumber at a time. For heights on an even grid the
+ * IEC coherence between rows i and j is rho^|i-j|, with
+ *     rho = exp(-a dz sqrt(kappa^2 + (0.12/L)^2)),
+ * so the rows are an AR(1) chain in z: g_j = rho g_(j-1) + sqrt(1 - rho^2) e_j.
+ * That is an exact factor of the Veers method's coherence matrix, at O(n) per
+ * wavenumber rather than O(n^3). The chain starts at hub height and runs up
+ * and down from there, so the hub row is e_hub alone whatever a is: changing
+ * the coherence reshapes the picture and leaves the Probe's record untouched.
+ *
+ * verify.mjs slices this section out by its first line and the "state" banner
+ * below, and checks it against theory. Keep both markers.
+ */
+const HUB = 150;                            // m
+const ROTOR_R = 120;                        // m, a 15 MW-class rotor
+const Z_TOP = 300;                          // field from z = 0 to here
+const NZ = 65;                              // heights; hub height is row 32
+const DZ = Z_TOP / (NZ - 1);
+const HUB_ROW = Math.round(HUB / DZ);
+const NX = 16384;                           // points downwind
+const DX = 2;                               // m
+const LX = NX * DX;                         // 32.8 km before the field repeats
+const U_RANGE = [4, 25];                    // m/s
+const TI_RANGE = [0.05, 0.40];
+const L_RANGE = [50, 1000];                 // m
+const L_IEC = 8.1 * 42;                     // IEC 61400-1, hub above 60 m
+const A_IEC = 12;
+
+/** IEC Kaimal spectrum of u, one-sided, in (m/s)^2/Hz. */
+function kaimal(f, U, sigma, L) {
+  return (sigma * sigma * 4 * L / U) / Math.pow(1 + 6 * f * L / U, 5 / 3);
+}
+
+/** IEC exponential coherence between two points r metres apart. a = Infinity is "independent". */
+function coherence(r, f, U, L, a) {
+  if (r === 0) return 1;
+  if (!Number.isFinite(a)) return 0;
+  return Math.exp(-a * Math.sqrt((f * r / U) ** 2 + (0.12 * r / L) ** 2));
+}
+
+/** IEC normal turbulence model: sigma = Iref (0.75 U + 5.6), as a turbulence intensity. */
+function tiNTM(U, iref) { return iref * (0.75 + 5.6 / U); }
+
+/** A small seeded generator, so the same seed gives the same field. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** In-place radix-2 FFT, e^(+i...) when inverse, unscaled. Twiddles cached by size. */
+const fftCache = new Map();
+function fft(re, im, inverse) {
+  const n = re.length;
+  let t = fftCache.get(n);
+  if (!t) {
+    const rev = new Uint32Array(n), cos = new Float64Array(n / 2), sin = new Float64Array(n / 2);
+    const bits = Math.log2(n);
+    for (let i = 0; i < n; i++) {
+      let r = 0;
+      for (let b = 0; b < bits; b++) r = (r << 1) | ((i >>> b) & 1);
+      rev[i] = r;
+    }
+    for (let i = 0; i < n / 2; i++) { cos[i] = Math.cos(2 * Math.PI * i / n); sin[i] = Math.sin(2 * Math.PI * i / n); }
+    t = { rev, cos, sin };
+    fftCache.set(n, t);
+  }
+  const { rev, cos, sin } = t;
+  for (let i = 0; i < n; i++) {
+    const j = rev[i];
+    if (j > i) { let x = re[i]; re[i] = re[j]; re[j] = x; x = im[i]; im[i] = im[j]; im[j] = x; }
+  }
+  const sgn = inverse ? 1 : -1;
+  for (let size = 2; size <= n; size <<= 1) {
+    const half = size >>> 1, step = n / size;
+    for (let start = 0; start < n; start += size) {
+      for (let k = 0; k < half; k++) {
+        const wr = cos[k * step], wi = sgn * sin[k * step];
+        const a = start + k, b = a + half;
+        const xr = re[b] * wr - im[b] * wi, xi = re[b] * wi + im[b] * wr;
+        re[b] = re[a] - xr; im[b] = im[a] - xi;
+        re[a] += xr; im[a] += xi;
+      }
+    }
+  }
+}
+
+/**
+ * One Wind field: fixed random numbers, reshaped whenever L or a change.
+ * Stores u'/sigma, so TI never touches it and U never does either.
+ */
+function createField(seed) {
+  const NK = NX / 2;                        // wavenumbers 1 .. NK-1 are used
+  const eRe = new Float32Array(NZ * NK), eIm = new Float32Array(NZ * NK);
+  const phi = new Float32Array(NZ * NX);    // u'/sigma, row by row
+  const gRe = new Float64Array(NZ), gIm = new Float64Array(NZ);
+  const re = new Float64Array(NX), im = new Float64Array(NX);
+  const cRe = new Float64Array(NZ * NK), cIm = new Float64Array(NZ * NK);
+
+  function draw(s) {
+    // Complex Gaussians with E|e|^2 = 1, by Box-Muller.
+    const rand = mulberry32(s);
+    for (let i = 0; i < NZ * NK; i++) {
+      const r = Math.sqrt(-Math.log(1 - rand())), th = 2 * Math.PI * rand();
+      eRe[i] = r * Math.cos(th); eIm[i] = r * Math.sin(th);
+    }
+  }
+  draw(seed);
+
+  function shape(L, a) {
+    const dk = 1 / LX;
+    for (let k = 1; k < NK; k++) {
+      const kappa = k * dk;                  // cycles per metre
+      // E|c|^2 = F(kappa) dk / 2, with F = 4L/(1+6 kappa L)^(5/3) for sigma = 1,
+      // so a row, sum of c e^(i..) + conj, has variance sum F dk.
+      const amp = Math.sqrt(2 * L * dk / Math.pow(1 + 6 * kappa * L, 5 / 3));
+      const rho = Number.isFinite(a) ? Math.exp(-a * DZ * Math.sqrt(kappa * kappa + (0.12 / L) ** 2)) : 0;
+      const q = Math.sqrt(1 - rho * rho);
+      const h = HUB_ROW;
+      gRe[h] = eRe[h * NK + k]; gIm[h] = eIm[h * NK + k];
+      for (let j = h + 1; j < NZ; j++) {
+        gRe[j] = rho * gRe[j - 1] + q * eRe[j * NK + k];
+        gIm[j] = rho * gIm[j - 1] + q * eIm[j * NK + k];
+      }
+      for (let j = h - 1; j >= 0; j--) {
+        gRe[j] = rho * gRe[j + 1] + q * eRe[j * NK + k];
+        gIm[j] = rho * gIm[j + 1] + q * eIm[j * NK + k];
+      }
+      for (let j = 0; j < NZ; j++) { cRe[j * NK + k] = amp * gRe[j]; cIm[j * NK + k] = amp * gIm[j]; }
+    }
+    // Two real rows per complex inverse FFT: z = a + i b has spectrum A + iB.
+    for (let j = 0; j < NZ; j += 2) {
+      const pair = j + 1 < NZ;
+      re.fill(0); im.fill(0);
+      for (let k = 1; k < NK; k++) {
+        const ar = cRe[j * NK + k], ai = cIm[j * NK + k];
+        const br = pair ? cRe[(j + 1) * NK + k] : 0, bi = pair ? cIm[(j + 1) * NK + k] : 0;
+        // A[k] = c, A[N-k] = conj c; likewise B. Z = A + iB.
+        re[k] = ar - bi; im[k] = ai + br;
+        re[NX - k] = ar + bi; im[NX - k] = -ai + br;
+      }
+      fft(re, im, true);
+      phi.set(re, j * NX);
+      if (pair) phi.set(im, (j + 1) * NX);
+    }
+  }
+
+  return {
+    phi,
+    shape,
+    newField(s) { draw(s); },
+    /**
+     * u'/sigma at row j, field coordinate xi (m), periodic. Catmull-Rom between
+     * grid points: linear interpolation smooths away a fifth of the power at
+     * a quarter of the grid's Nyquist, which the spectrum estimate shows.
+     */
+    at(j, xi) {
+      let p = xi / DX;
+      p -= Math.floor(p / NX) * NX;
+      const i1 = Math.floor(p), t = p - i1, o = j * NX;
+      const y0 = phi[o + ((i1 - 1 + NX) % NX)], y1 = phi[o + i1];
+      const y2 = phi[o + ((i1 + 1) % NX)], y3 = phi[o + ((i1 + 2) % NX)];
+      return y1 + 0.5 * t * (y2 - y0 + t * (2 * y0 - 5 * y1 + 4 * y2 - y3 + t * (3 * (y1 - y2) + y3 - y0)));
+    },
+  };
+}
+
+/**
+ * What the Probe recorded over the last `seconds`, n samples, oldest first:
+ * under frozen turbulence it is the hub-height row of the field downwind of
+ * the Rotor, read back towards it. `x0` is how far the field has travelled.
+ */
+function probeRecord(field, x0, U, sigma, seconds, n, out) {
+  const dt = seconds / n;
+  for (let i = 0; i < n; i++) {
+    const tau = (n - 1 - i) * dt;          // seconds ago
+    out[i] = U + sigma * field.at(HUB_ROW, -x0 + U * tau);
+  }
+  return out;
+}
+
+/**
+ * One-sided periodogram of a record, averaged into log-spaced bands so the
+ * low frequencies (few, noisy) and high ones (many) each get a readable point.
+ * Returns [{f, S}] with S in (m/s)^2/Hz.
+ */
+function estimateSpectrum(x, dt, perDecade) {
+  const n = x.length;
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += x[i];
+  mean /= n;
+  const re = new Float64Array(n), im = new Float64Array(n);
+  for (let i = 0; i < n; i++) re[i] = x[i] - mean;
+  fft(re, im, false);
+  const df = 1 / (n * dt), out = [];
+  let band = null;
+  for (let k = 1; k < n / 2; k++) {
+    const f = k * df;
+    const S = (2 * dt / n) * (re[k] * re[k] + im[k] * im[k]);
+    const b = Math.floor(Math.log10(f) * perDecade);
+    if (!band || band.b !== b) { band = { b, sf: 0, sS: 0, n: 0 }; out.push(band); }
+    band.sf += Math.log(f); band.sS += S; band.n++;
+  }
+  return out.map((d) => ({ f: Math.exp(d.sf / d.n), S: d.sS / d.n }));
+}
+
+/* --------------------------------------------------------------- state */
+
+let U = 10, TI = 0.183, L = L_IEC, A = A_IEC;
+let seed = 1;
+const field = createField(seed);
+field.shape(L, A);
+let dirty = false;                          // L or a moved; reshape on the next frame
+let x0 = 0;                                 // how far the field has travelled, m
+
+const TRACE_SECONDS = 600;                  // the industry's 10-minute record
+const TRACE_N = 8192;                       // 13.7 Hz, above the field's resolution at 25 m/s
+const trace = new Float64Array(TRACE_N);
+let estimate = [], estimateAge = Infinity;
+
+const sigma = () => TI * U;
+
+/* ------------------------------------------------------------ rendering */
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, lay = null;
+
+function readPalette() {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  return dark ? {
+    accent: '96,165,250', warm: '251,146,60', steel: '#cbd5e1', steelLo: '#64748b',
+    ink: '#e2e8f0', muted: 'rgba(148,163,184,0.8)', rule: 'rgba(148,163,184,0.22)',
+    core: 'rgba(191,219,254,0.95)', label: 'rgba(226,232,240,0.92)',
+    mid: [30, 36, 48], slow: [59, 130, 246], slowHi: [147, 197, 253], fast: [234, 88, 12], fastHi: [253, 186, 116],
+  } : {
+    accent: '37,99,235', warm: '234,88,12', steel: '#1f2937', steelLo: '#4b5563',
+    ink: '#0f172a', muted: 'rgba(100,116,139,0.9)', rule: 'rgba(100,116,139,0.25)',
+    core: 'rgba(191,219,254,0.95)', label: 'rgba(15,23,42,0.85)',
+    mid: [241, 244, 249], slow: [96, 145, 240], slowHi: [29, 58, 160], fast: [245, 140, 80], fastHi: [170, 50, 8],
+  };
+}
+let pal, lut;
+function setPalette() {
+  pal = readPalette();
+  // u'/sigma from -2.5 to +2.5 through a neutral middle: slower is blue, faster warm.
+  lut = new Uint8ClampedArray(256 * 3);
+  const mix = (a, b, t) => a + (b - a) * t;
+  for (let i = 0; i < 256; i++) {
+    const v = (i / 255) * 2 - 1, t = Math.abs(v);
+    const [lo, hi] = v < 0 ? [pal.slow, pal.slowHi] : [pal.fast, pal.fastHi];
+    for (let c = 0; c < 3; c++) {
+      const edge = mix(lo[c], hi[c], Math.max(0, (t - 0.5) / 0.5));
+      lut[i * 3 + c] = t < 0.5 ? mix(pal.mid[c], lo[c], t / 0.5) : edge;
+    }
+  }
+}
+setPalette();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', setPalette);
+const rgba = (c, a) => `rgba(${c},${Math.max(0, a).toFixed(3)})`;
+const FONT = 'system-ui,-apple-system,"Segoe UI",Arial,sans-serif';
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = cv.clientWidth; H = cv.clientHeight;
+  const bw = Math.round(W * DPR), bh = Math.round(H * DPR);
+  if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+  layout();
+}
+
+/**
+ * Three bands above the knobs: the field, the trace, the spectrum. The field
+ * is at true scale, one metre as many pixels across as up; a narrow window
+ * shows less of it rather than squashing it.
+ */
+const knobs = document.getElementById('knobs');
+function layout() {
+  const avail = H - knobs.offsetHeight - 16;
+  const picH = Math.round(avail * 0.42);
+  const traceH = Math.round(avail * 0.22);
+  const s = (picH - 4) / Z_TOP;             // px per metre
+  const rotorX = Math.round(Math.min(W * 0.3, 60 + ROTOR_R * s * 0.3));
+  const cols = Math.max(2, Math.ceil(W / 2));
+  lay = {
+    picH, s, rotorX, cols,
+    traceTop: picH, traceH, specTop: picH + traceH, specH: avail - picH - traceH,
+  };
+  if (!img || img.width !== cols) {
+    img = new ImageData(cols, NZ);
+    off.width = cols; off.height = NZ;
+  }
+  hint.style.top = (picH + traceH + 36) + 'px';
+}
+const off = document.createElement('canvas');
+const octx = off.getContext('2d');
+let img = null;
+
+const wx = (x) => lay.rotorX + x * lay.s;   // metres downwind of the Rotor, to screen
+const wy = (z) => lay.picH - 2 - z * lay.s;
+
+function drawField() {
+  const { picH, s, cols } = lay;
+  // One column every two screen pixels, each read straight off the field at
+  // its own position, so the scroll is smooth rather than stepping by DX.
+  const d = img.data;
+  for (let c = 0; c < cols; c++) {
+    const x = ((c + 0.5) * (W / cols) - lay.rotorX) / s;   // metres from the Rotor
+    for (let j = 0; j < NZ; j++) {
+      const v = field.at(j, x - x0);
+      const i = Math.max(0, Math.min(255, Math.round((v / 2.5 + 1) * 127.5)));
+      const p = ((NZ - 1 - j) * cols + c) * 4;
+      d[p] = lut[i * 3]; d[p + 1] = lut[i * 3 + 1]; d[p + 2] = lut[i * 3 + 2]; d[p + 3] = 255;
+    }
+  }
+  octx.putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(off, 0, 0, cols, NZ, 0, wy(Z_TOP + DZ / 2), W, (Z_TOP + DZ) * s);
+
+  // Hub height through the picture: the trace below is this line, read in time.
+  ctx.setLineDash([2, 5]);
+  ctx.strokeStyle = pal.label; ctx.globalAlpha = 0.45; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(wx(0), Math.round(wy(HUB)) + 0.5); ctx.lineTo(W, Math.round(wy(HUB)) + 0.5); ctx.stroke();
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+  drawRotor();
+
+  // The Probe, just upwind of the blades at hub height.
+  const px = wx(-8), py = wy(HUB);
+  const glow = ctx.createRadialGradient(px, py, 2, px, py, 14);
+  glow.addColorStop(0, rgba(pal.accent, 0.45)); glow.addColorStop(1, rgba(pal.accent, 0));
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(px, py, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = rgba(pal.accent, 1);
+  ctx.beginPath(); ctx.arc(px, py, 4.5, 0, Math.PI * 2); ctx.fill();
+
+  ctx.font = `600 10px ${FONT}`; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+  ctx.fillStyle = pal.label;
+  ctx.fillText(W < 560 ? 'WIND FIELD  u′  →' : 'WIND FIELD  u′  ·  FROZEN, CARRIED PAST AT U  →', 14, 10);
+
+  // Scale bar and colour key along the bottom edge.
+  const bar = s * 50 >= 60 ? 50 : 100;
+  const bx0 = 14, by = picH - 12;
+  ctx.strokeStyle = pal.label; ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(bx0, by - 4); ctx.lineTo(bx0, by); ctx.lineTo(bx0 + bar * s, by); ctx.lineTo(bx0 + bar * s, by - 4);
+  ctx.stroke();
+  ctx.fillStyle = pal.label; ctx.textBaseline = 'bottom';
+  ctx.fillText(bar + ' m', bx0 + 4, by - 3);
+
+  const kw = Math.min(120, W * 0.25), kx = W - 14 - kw, ky = by - 7;
+  const g = ctx.createLinearGradient(kx, 0, kx + kw, 0);
+  for (let i = 0; i <= 8; i++) {
+    const k = Math.round((i / 8) * 255) * 3;
+    g.addColorStop(i / 8, `rgb(${lut[k]},${lut[k + 1]},${lut[k + 2]})`);
+  }
+  ctx.fillStyle = g; ctx.fillRect(kx, ky, kw, 7);
+  ctx.strokeStyle = pal.rule; ctx.lineWidth = 1; ctx.strokeRect(kx + 0.5, ky + 0.5, kw - 1, 6);
+  ctx.fillStyle = pal.label; ctx.textBaseline = 'bottom';
+  ctx.textAlign = 'left'; ctx.fillText('slower', kx, ky - 2);
+  ctx.textAlign = 'right'; ctx.fillText('faster', kx + kw, ky - 2);
+  if (kw >= 110) { ctx.textAlign = 'center'; ctx.fillText('u′/σ', kx + kw / 2, ky - 2); }
+}
+
+/* The Rotor, edge-on, with its tower fading out below: there is no ground. */
+function drawRotor() {
+  const s = lay.s;
+  ctx.save();
+  const g = ctx.createLinearGradient(0, wy(0), 0, wy(HUB));
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.35, pal.steelLo); g.addColorStop(1, pal.steel);
+  ctx.fillStyle = g;
+  const wb = 8, wt = 5.5;
+  ctx.beginPath();
+  ctx.moveTo(wx(6 - wb / 2), wy(0)); ctx.lineTo(wx(6 + wb / 2), wy(0));
+  ctx.lineTo(wx(6 + wt / 2), wy(HUB - 4)); ctx.lineTo(wx(6 - wt / 2), wy(HUB - 4));
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = pal.steel;
+  const nw = 20, nh = 8;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(wx(0), wy(HUB + nh / 2), nw * s, nh * s, 2.5 * s);
+  else ctx.rect(wx(0), wy(HUB + nh / 2), nw * s, nh * s);
+  ctx.fill();
+  ctx.beginPath(); ctx.ellipse(wx(-1), wy(HUB), 3.2 * s, 3.6 * s, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = pal.steel; ctx.lineCap = 'round';
+  ctx.lineWidth = Math.max(1.4, 2.6 * s);
+  ctx.beginPath(); ctx.moveTo(wx(-3), wy(HUB - ROTOR_R)); ctx.lineTo(wx(-3), wy(HUB + ROTOR_R)); ctx.stroke();
+  ctx.restore();
+}
+
+/* The trace: u at the Probe over the last ten minutes. */
+let goff = null, gctx = null, traceLo = 0, traceHi = 20;
+function drawTrace(dt) {
+  const { traceTop, traceH } = lay;
+  const gh = traceH, gw = W;
+  if (gh < 30) return;
+  const GDPR = Math.min(DPR, 1.25);
+  if (!goff) { goff = document.createElement('canvas'); gctx = goff.getContext('2d'); }
+  const dw = Math.max(1, Math.round(gw * GDPR)), dh = Math.max(1, Math.round(gh * GDPR));
+  if (goff.width !== dw || goff.height !== dh) { goff.width = dw; goff.height = dh; }
+  const g = gctx;
+  g.setTransform(GDPR, 0, 0, GDPR, 0, 0);
+  g.clearRect(0, 0, gw, gh);
+
+  // Axis from 0 to 2U, eased: U sits in the middle, and a larger TI shows as a
+  // wider swing rather than being scaled away.
+  const k = Math.min(1, dt * 4);
+  traceLo += (0 - traceLo) * k;
+  traceHi += (2 * U - traceHi) * k;
+  const top = gh * 0.16, bottom = gh * 0.96;
+  const yOf = (v) => bottom - ((v - traceLo) / (traceHi - traceLo)) * (bottom - top);
+  const xOf = (i) => (i / (TRACE_N - 1)) * gw;
+
+  // What is still in the picture: the air downwind of the Rotor, the newest
+  // part of the record.
+  const inPic = (W - lay.rotorX) / lay.s / U;
+  const bandX = gw * Math.max(0, 1 - inPic / TRACE_SECONDS);
+  g.fillStyle = rgba(pal.accent, 0.07);
+  g.fillRect(bandX, top - 4, gw - bandX, bottom - top + 4);
+
+  // Minute marks.
+  g.strokeStyle = rgba(pal.accent, 0.10); g.lineWidth = 1;
+  g.beginPath();
+  for (let m = 1; m < 10; m++) {
+    const x = Math.round((m / 10) * gw) + 0.5;
+    g.moveTo(x, top); g.lineTo(x, bottom);
+  }
+  g.stroke();
+
+  // One sample per screen pixel. All 8192 zig-zagging under a glow cost more
+  // than the rest of the frame put together, and the eye cannot tell.
+  const line = new Path2D();
+  const cols = Math.min(TRACE_N, Math.ceil(gw));
+  for (let c = 0; c < cols; c++) {
+    const i = Math.round((c / (cols - 1)) * (TRACE_N - 1));
+    if (c === 0) line.moveTo(xOf(i), yOf(trace[i])); else line.lineTo(xOf(i), yOf(trace[i]));
+  }
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.strokeStyle = rgba(pal.accent, 0.13); g.lineWidth = Math.max(4, gh * 0.035); g.stroke(line);
+  g.strokeStyle = rgba(pal.accent, 0.65); g.lineWidth = 1.5; g.stroke(line);
+  g.strokeStyle = pal.core; g.lineWidth = 0.8; g.stroke(line);
+
+  // U, and U +- sigma.
+  g.strokeStyle = rgba(pal.accent, 0.35); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(0, Math.round(yOf(U)) + 0.5); g.lineTo(gw, Math.round(yOf(U)) + 0.5); g.stroke();
+  g.setLineDash([5, 5]);
+  g.strokeStyle = rgba(pal.warm, 0.6);
+  for (const v of [U + sigma(), U - sigma()]) {
+    const y = Math.round(yOf(v)) + 0.5;
+    g.beginPath(); g.moveTo(0, y); g.lineTo(gw, y); g.stroke();
+  }
+  g.setLineDash([]);
+  ctx.drawImage(goff, 0, traceTop, gw, gh);
+
+  ctx.font = `600 10px ${FONT}`; ctx.textBaseline = 'top';
+  ctx.fillStyle = pal.muted; ctx.textAlign = 'left';
+  ctx.fillText('WIND SPEED AT HUB HEIGHT  ·  LAST 10 MIN', 14, traceTop + 6);
+  if (gw - bandX > 70) {
+    ctx.textAlign = 'right';
+    ctx.fillText('STILL IN THE PICTURE', W - 10, traceTop + 6);
+  }
+  ctx.font = `500 10px ${FONT}`;
+  ctx.fillStyle = rgba(pal.warm, 0.9); ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.fillText('U + σ', 8, Math.round(traceTop + yOf(U + sigma())) - 2);
+  ctx.textBaseline = 'top';
+  ctx.fillText('U − σ', 8, Math.round(traceTop + yOf(U - sigma())) + 3);
+}
+
+/* The Kaimal spectrum, log-log, as f S(f) so the peak shows where the energy is. */
+const F_LO = 1e-3, F_HI = 2;                // Hz
+const FS_LO = 1e-4, FS_HI = 30;             // (m/s)^2
+
+function drawSpectrum() {
+  const { specTop, specH } = lay;
+  const left = 46, right = W - 18, top = specTop + 26, bottom = specTop + specH - 28;
+  if (bottom - top < 30) return;
+  const lx = (f) => left + (Math.log10(f / F_LO) / Math.log10(F_HI / F_LO)) * (right - left);
+  const ly = (v) => bottom - (Math.log10(v / FS_LO) / Math.log10(FS_HI / FS_LO)) * (bottom - top);
+  const clipY = (y) => Math.max(top, Math.min(bottom, y));
+
+  ctx.font = `500 10px ${FONT}`;
+  ctx.strokeStyle = pal.rule; ctx.lineWidth = 1; ctx.fillStyle = pal.muted;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.beginPath(); ctx.moveTo(left, Math.round(bottom) + 0.5); ctx.lineTo(right, Math.round(bottom) + 0.5); ctx.stroke();
+  for (const f of [0.001, 0.01, 0.1, 1]) {
+    const x = Math.round(lx(f)) + 0.5;
+    ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.fillText(String(f), x, bottom + 5);
+  }
+  ctx.textAlign = 'right';
+  ctx.fillText('f  (Hz)', right, bottom + 16);
+  ctx.textBaseline = 'middle';
+  for (let e = -4; e <= 1; e++) {
+    const y = Math.round(ly(10 ** e)) + 0.5;
+    ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.fillText(e === 0 ? '1' : e === 1 ? '10' : '10' + ['⁻⁴', '⁻³', '⁻²', '⁻¹'][e + 4], left - 6, y);
+  }
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.font = `600 10px ${FONT}`;
+  ctx.fillText('KAIMAL SPECTRUM  f·S(f)  (m/s)²', 14, specTop + 8);
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(left, top - 2, right - left, bottom - top + 4); ctx.clip();
+
+  // The estimate from the ten minutes on the trace, faint, behind the model.
+  // It stops at half the field grid's Nyquist, U / (4 DX): past that the
+  // interpolation between grid points, not the wind, sets what it shows.
+  const fMax = Math.min(U / (4 * DX), 0.8 * TRACE_N / (2 * TRACE_SECONDS));
+  ctx.strokeStyle = rgba(pal.warm, 0.55); ctx.fillStyle = rgba(pal.warm, 0.75); ctx.lineWidth = 1.2;
+  const est = new Path2D();
+  let first = true;
+  for (const p of estimate) {
+    if (p.f > fMax || p.S <= 0) continue;
+    const x = lx(p.f), y = clipY(ly(p.f * p.S));
+    if (first) { est.moveTo(x, y); first = false; } else est.lineTo(x, y);
+  }
+  ctx.stroke(est);
+  for (const p of estimate) {
+    if (p.f > fMax || p.S <= 0) continue;
+    ctx.beginPath(); ctx.arc(lx(p.f), clipY(ly(p.f * p.S)), 1.8, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // The model.
+  const sg = sigma();
+  const line = new Path2D();
+  const N = 240;
+  for (let i = 0; i <= N; i++) {
+    const f = F_LO * (F_HI / F_LO) ** (i / N);
+    const y = ly(f * kaimal(f, U, sg, L));
+    if (i === 0) line.moveTo(lx(f), y); else line.lineTo(lx(f), y);
+  }
+  const area = new Path2D(line);
+  area.lineTo(lx(F_HI), bottom + 4); area.lineTo(lx(F_LO), bottom + 4); area.closePath();
+  const fg = ctx.createLinearGradient(0, top, 0, bottom);
+  fg.addColorStop(0, rgba(pal.accent, 0.24)); fg.addColorStop(1, rgba(pal.accent, 0.03));
+  ctx.fillStyle = fg; ctx.fill(area);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = rgba(pal.accent, 0.14); ctx.lineWidth = 6; ctx.stroke(line);
+  ctx.strokeStyle = rgba(pal.accent, 0.75); ctx.lineWidth = 2.2; ctx.stroke(line);
+  ctx.strokeStyle = pal.core; ctx.lineWidth = 1; ctx.stroke(line);
+
+  // The -5/3 law: f S falls as f^(-2/3). A short guide just above the curve,
+  // a decade past the peak.
+  const fp = U / (4 * L);
+  const f1 = Math.min(fp * 20, F_HI / 8), f2 = f1 * 6;
+  const lift = 2.4;
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = pal.muted; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(lx(f1), ly(lift * f1 * kaimal(f1, U, sg, L)));
+  ctx.lineTo(lx(f2), ly(lift * f1 * kaimal(f1, U, sg, L) * (f2 / f1) ** (-2 / 3)));
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = pal.muted; ctx.font = `600 10px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.fillText('−5/3', lx(Math.sqrt(f1 * f2)) + 4, ly(lift * f1 * kaimal(f1, U, sg, L) * (Math.sqrt(f2 / f1)) ** (-2 / 3)) - 3);
+  ctx.restore();
+
+  // Key.
+  ctx.font = `500 10px ${FONT}`; ctx.textBaseline = 'top'; ctx.textAlign = 'right';
+  ctx.fillStyle = rgba(pal.accent, 0.95);
+  ctx.fillText('IEC Kaimal', W - 10, specTop + 8);
+  ctx.fillStyle = rgba(pal.warm, 0.95);
+  ctx.fillText('from the last 10 min', W - 10, specTop + 21);
+}
+
+function render(dt) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  drawField();
+  drawTrace(dt);
+  drawSpectrum();
+}
+
+/* ------------------------------------------------------------- controls */
+
+const hint = document.getElementById('hint');
+const hintTimer = setTimeout(() => hint.classList.add('show'), 900);
+function dismissHint() { clearTimeout(hintTimer); hint.classList.remove('show'); }
+
+const $ = (id) => document.getElementById(id);
+const uIn = $('u'), tiIn = $('ti'), lenIn = $('len'), cohIn = $('coh');
+
+function show() {
+  $('uOut').textContent = U.toFixed(1) + ' m/s';
+  $('tiOut').textContent = (TI * 100).toFixed(1) + ' %';
+  $('lenOut').textContent = Math.round(L) + ' m';
+  $('cohOut').textContent = A === 0 ? '0 · coherent' : Number.isFinite(A) ? String(A) : 'independent';
+  // The IEC class notches depend on U: sigma = Iref (0.75 U + 5.6).
+  const [lo, hi] = [Number(tiIn.min), Number(tiIn.max)];
+  for (const n of document.querySelectorAll('#tiNotches .notch')) {
+    const ti = tiNTM(U, Number(n.dataset.iref)) * 100;
+    const p = (ti - lo) / (hi - lo);
+    n.hidden = p < 0 || p > 1;
+    n.style.left = `calc(${p.toFixed(4)} * (100% - 16px) + 8px)`;
+  }
+}
+
+uIn.addEventListener('input', () => { U = Number(uIn.value); show(); estimateAge = Infinity; });
+tiIn.addEventListener('input', () => { TI = Number(tiIn.value) / 100; show(); estimateAge = Infinity; });
+lenIn.addEventListener('input', () => { L = 10 ** Number(lenIn.value); dirty = true; show(); });
+cohIn.addEventListener('input', () => {
+  const v = Number(cohIn.value);
+  A = v >= Number(cohIn.max) ? Infinity : v;
+  dirty = true; show(); dismissHint();
+});
+$('newfield').addEventListener('click', () => {
+  seed += 1;
+  field.newField(seed);
+  field.shape(L, A);
+  estimateAge = Infinity;
+});
+
+/* ----------------------------------------------------------------- loop */
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  // Reshaping is ~50 ms on a laptop, so a dragged slider asks for it at most
+  // once a frame, however many input events arrived.
+  if (dirty) { field.shape(L, A); dirty = false; estimateAge = Infinity; }
+  x0 += U * dt;
+  if (x0 > LX) x0 -= LX;
+  // The whole record is re-read from the field every frame: under frozen
+  // turbulence it is the hub row downwind, so it is always consistent with
+  // the picture, and with the knobs as they are now.
+  probeRecord(field, x0, U, sigma(), TRACE_SECONDS, TRACE_N, trace);
+  estimateAge += dt;
+  if (estimateAge > 0.5) { estimate = estimateSpectrum(trace, TRACE_SECONDS / TRACE_N, 10); estimateAge = 0; }
+  render(dt);
+  requestAnimationFrame(frame);
+}
+
+new ResizeObserver(resize).observe(cv);
+new ResizeObserver(resize).observe(knobs);
+resize();
+show();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

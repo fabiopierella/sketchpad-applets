@@ -74,7 +74,7 @@ the tool is built so that this can be seen.
   taken at fixed points U·dt apart in the field, and once taken it never
   changes. The trace is drawn thinned by a rule tied to those points, so the
   same samples are drawn every frame. `verify.mjs` pins this.
-- **The estimate** is the periodogram of the 10 minutes on screen, averaged
+- **The estimate** is the periodogram of the full 10-minute record, averaged
   into ten bands per decade and drawn faintly behind the model. It is left
   deliberately noisy at the low end, where a 10-minute record holds only a
   handful of cycles. It stops at U/(4·DX), past which the field grid rather

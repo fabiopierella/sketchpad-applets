@@ -317,14 +317,22 @@ function createField(seed) {
  * What the Probe recorded over the last `seconds`, n samples, oldest first:
  * under frozen turbulence it is the hub-height row of the field downwind of
  * the Rotor, read back towards it. `x0` is how far the field has travelled.
+ *
+ * Samples sit at fixed points in the air, U dt apart, not at fixed times
+ * before now. Measured back from now, every sample moved a little each frame
+ * and picked up different fine detail, so the whole trace shimmered in place
+ * instead of sliding. Pinned to the air, a sample once taken never changes.
+ * Returns `newest`, the index in the air of the last sample (so a drawing can
+ * thin the record by a rule that does not change between frames), and `lag`,
+ * how many seconds ago it was taken.
  */
 function probeRecord(field, x0, U, sigma, seconds, n, out) {
-  const dt = seconds / n;
+  const dt = seconds / n, dxi = U * dt;
+  const newest = Math.floor(x0 / dxi);
   for (let i = 0; i < n; i++) {
-    const tau = (n - 1 - i) * dt;          // seconds ago
-    out[i] = U + sigma * field.at(HUB_ROW, -x0 + U * tau);
+    out[i] = U + sigma * field.at(HUB_ROW, -(newest - (n - 1 - i)) * dxi);
   }
-  return out;
+  return { newest, lag: (x0 - newest * dxi) / U };
 }
 
 /**
@@ -360,11 +368,17 @@ const field = createField(seed);
 field.shape(L, A);
 let dirty = false;                          // L or a moved; reshape on the next frame
 let x0 = 0;                                 // how far the field has travelled, m
+let clock = 0;                              // s, for the trace's time marks
 
-const TRACE_SECONDS = 600;                  // the industry's 10-minute record
+const TRACE_SECONDS = 600;                  // the industry's 10-minute record, for the estimate
+// What the trace shows of it. Ten minutes across a screen crept at 2 px/s and
+// looked frozen; two minutes moves at the pace of the picture above it, which
+// at 10 m/s spans about as much air.
+const TRACE_SHOW = 120;
 const TRACE_N = 8192;                       // 13.7 Hz, above the field's resolution at 25 m/s
 const trace = new Float64Array(TRACE_N);
 let estimate = [], estimateAge = Infinity;
+let traceAt = { newest: 0, lag: 0 };       // where the record's samples sit; see probeRecord
 
 const sigma = () => TI * U;
 
@@ -554,31 +568,36 @@ function drawTrace(dt) {
   traceHi += (2 * U - traceHi) * k;
   const top = gh * 0.16, bottom = gh * 0.96;
   const yOf = (v) => bottom - ((v - traceLo) / (traceHi - traceLo)) * (bottom - top);
-  const xOf = (i) => (i / (TRACE_N - 1)) * gw;
+  // Sample i was taken (TRACE_N - 1 - i) dt + lag seconds ago, so the trace
+  // slides smoothly between samples rather than jumping one at a time.
+  const tdt = TRACE_SECONDS / TRACE_N;
+  const xOf = (i) => gw - (((TRACE_N - 1 - i) * tdt + traceAt.lag) / TRACE_SHOW) * gw;
+  const firstShown = Math.max(0, TRACE_N - 2 - Math.ceil(TRACE_SHOW / tdt));
 
   // What is still in the picture: the air downwind of the Rotor, the newest
   // part of the record.
   const inPic = (W - lay.rotorX) / lay.s / U;
-  const bandX = gw * Math.max(0, 1 - inPic / TRACE_SECONDS);
+  const bandX = gw * Math.max(0, 1 - inPic / TRACE_SHOW);
   g.fillStyle = rgba(pal.accent, 0.07);
   g.fillRect(bandX, top - 4, gw - bandX, bottom - top + 4);
 
-  // Minute marks.
-  g.strokeStyle = rgba(pal.accent, 0.10); g.lineWidth = 1;
-  g.beginPath();
-  for (let m = 1; m < 10; m++) {
-    const x = Math.round((m / 10) * gw) + 0.5;
-    g.moveTo(x, top); g.lineTo(x, bottom);
+  // Ten-second marks, travelling with the trace.
+  g.lineWidth = 1;
+  for (let m = Math.ceil((clock - TRACE_SHOW) / 10) * 10; m <= clock; m += 10) {
+    const x = Math.round(gw - ((clock - m) / TRACE_SHOW) * gw) + 0.5;
+    g.strokeStyle = rgba(pal.accent, m % 60 === 0 ? 0.2 : 0.09);
+    g.beginPath(); g.moveTo(x, top); g.lineTo(x, bottom); g.stroke();
   }
-  g.stroke();
 
-  // One sample per screen pixel. All 8192 zig-zagging under a glow cost more
-  // than the rest of the frame put together, and the eye cannot tell.
+  // About one sample per screen pixel. All 8192 zig-zagging under a glow cost
+  // more than the rest of the frame put together. Which samples are kept is
+  // decided by their place in the air, so it is the same set every frame.
   const line = new Path2D();
-  const cols = Math.min(TRACE_N, Math.ceil(gw));
-  for (let c = 0; c < cols; c++) {
-    const i = Math.round((c / (cols - 1)) * (TRACE_N - 1));
-    if (c === 0) line.moveTo(xOf(i), yOf(trace[i])); else line.lineTo(xOf(i), yOf(trace[i]));
+  const step = Math.max(1, Math.floor((TRACE_SHOW / tdt) / gw));
+  let started = false;
+  for (let i = firstShown; i < TRACE_N; i++) {
+    if ((((traceAt.newest - (TRACE_N - 1 - i)) % step) + step) % step !== 0) continue;
+    if (!started) { line.moveTo(xOf(i), yOf(trace[i])); started = true; } else line.lineTo(xOf(i), yOf(trace[i]));
   }
   g.lineJoin = 'round'; g.lineCap = 'round';
   g.strokeStyle = rgba(pal.accent, 0.13); g.lineWidth = Math.max(4, gh * 0.035); g.stroke(line);
@@ -599,7 +618,7 @@ function drawTrace(dt) {
 
   ctx.font = `600 10px ${FONT}`; ctx.textBaseline = 'top';
   ctx.fillStyle = pal.muted; ctx.textAlign = 'left';
-  ctx.fillText('WIND SPEED AT HUB HEIGHT  ·  LAST 10 MIN', 14, traceTop + 6);
+  ctx.fillText('WIND SPEED AT HUB HEIGHT  ·  LAST 2 MIN', 14, traceTop + 6);
   if (gw - bandX > 70) {
     ctx.textAlign = 'right';
     ctx.fillText('STILL IN THE PICTURE', W - 10, traceTop + 6);
@@ -763,11 +782,11 @@ function frame(now) {
   // once a frame, however many input events arrived.
   if (dirty) { field.shape(L, A); dirty = false; estimateAge = Infinity; }
   x0 += U * dt;
-  if (x0 > LX) x0 -= LX;
+  clock += dt;
   // The whole record is re-read from the field every frame: under frozen
   // turbulence it is the hub row downwind, so it is always consistent with
   // the picture, and with the knobs as they are now.
-  probeRecord(field, x0, U, sigma(), TRACE_SECONDS, TRACE_N, trace);
+  traceAt = probeRecord(field, x0, U, sigma(), TRACE_SECONDS, TRACE_N, trace);
   estimateAge += dt;
   if (estimateAge > 0.5) { estimate = estimateSpectrum(trace, TRACE_SECONDS / TRACE_N, 10); estimateAge = 0; }
   render(dt);

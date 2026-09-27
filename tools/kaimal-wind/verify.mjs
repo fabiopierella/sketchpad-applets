@@ -194,12 +194,22 @@ console.log('Probe record and spectrum estimate:');
   const f = P.createField(11);
   f.shape(340, 12);
   const U = 10, sigma = 1.8, N = 8192, T = 600;
-  const rec = P.probeRecord(f, 1234, U, sigma, T, N, new Float64Array(N));
-  // The newest sample is the air at the Probe now; one 30 s earlier is 300 m downwind.
-  const i30 = N - 1 - Math.round(30 / (T / N));
-  const tau = (N - 1 - i30) * (T / N);
-  pass(Math.abs(rec[N - 1] - (U + sigma * f.at(P.HUB_ROW, -1234))) < 1e-9 &&
-       Math.abs(rec[i30] - (U + sigma * f.at(P.HUB_ROW, -1234 + U * tau))) < 1e-9,
+  const rec = new Float64Array(N);
+  const at = P.probeRecord(f, 1234, U, sigma, T, N, rec);
+  // Sample i was taken (N-1-i) dt + lag ago, when the air now (N-1-i) dt + lag
+  // times U downwind of the Rotor was at the Probe.
+  const dt = T / N, ok = (i) => {
+    const tau = (N - 1 - i) * dt + at.lag;
+    return Math.abs(rec[i] - (U + sigma * f.at(P.HUB_ROW, -1234 + U * tau))) < 1e-6;
+  };
+  // A sample, once taken, is not changed by the field moving on.
+  const later = new Float64Array(N);
+  const at2 = P.probeRecord(f, 1234 + 5.37 * U * dt, U, sigma, T, N, later);
+  const shift = at2.newest - at.newest;
+  let stable = true;
+  for (let i = shift; i < N; i++) if (Math.abs(later[i - shift] - rec[i]) > 1e-12) stable = false;
+  pass(stable, 'a sample, once taken, never changes as the field moves on');
+  pass(at.lag >= 0 && at.lag < dt && ok(N - 1) && ok(N - 1 - Math.round(30 / dt)),
        'the record is the hub row downwind of the Rotor, read back in time');
 
   // Averaged over many records, the band-averaged estimate follows Kaimal.

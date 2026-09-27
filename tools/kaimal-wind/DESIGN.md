@@ -60,9 +60,20 @@ the tool is built so that this can be seen.
   the Rotor, read backwards. The trace therefore always matches the picture,
   and always matches the knobs as they are now: a change of U re-spaces the
   whole record at once rather than taking ten minutes to work through. The
-  shaded end of the trace is the stretch still in view.
-- **Real time, 10 minutes**, because 10 minutes is the industry's record
-  length, and at real speed turbulence already looks lively.
+  shaded end of the trace is the stretch still in view. On a wide screen at
+  moderate U, that is all of it.
+- **Real time, 10-minute record, 2 minutes shown** (changed 2026-09-27 after
+  trying it). The full 10 minutes across a screen crept at 2 px/s and looked
+  frozen. Two minutes moves at the pace of the picture above it, which at
+  10 m/s spans about as much air. The estimate still uses all 10 minutes,
+  because 10 minutes is the industry's record length.
+- **Samples are pinned to the air, not to the clock** (also 2026-09-27). The
+  first cut re-read the record at fixed times before *now*, so every sample
+  sat somewhere slightly new each frame and picked up different fine detail.
+  The whole trace shimmered in place by more than it moved. Now a sample is
+  taken at fixed points U·dt apart in the field, and once taken it never
+  changes. The trace is drawn thinned by a rule tied to those points, so the
+  same samples are drawn every frame. `verify.mjs` pins this.
 - **The estimate** is the periodogram of the 10 minutes on screen, averaged
   into ten bands per decade and drawn faintly behind the model. It is left
   deliberately noisy at the low end, where a 10-minute record holds only a
@@ -108,6 +119,7 @@ the tool is built so that this can be seen.
 - a = 0 gives identical rows; independent gives uncorrelated neighbours.
 - Morphing is reversible; New field changes the field; the hub row does not
   depend on a.
-- The Probe record is the hub row downwind, read back in time, and its
+- The Probe record is the hub row downwind, read back in time; a sample
+  never changes once taken; and its
   band-averaged estimate follows Kaimal within 10% from 0.01 to 1.5 Hz.
 - Reshaping takes under 150 ms in Node.

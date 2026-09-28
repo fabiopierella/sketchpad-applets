@@ -31,7 +31,7 @@ if (start < 0 || end < 0 || end <= start) {
 }
 const P = eval(
   html.slice(start, end) +
-    '; ({ kaimal, coherence, tiNTM, createField, probeRecord, estimateSpectrum, NX, NZ, DX, DZ, LX, HUB_ROW, L_IEC })',
+    '; ({ kaimal, coherence, tiNTM, createField, probeRecord, estimateSpectrum, kaimalQuantile, NX, NZ, DX, DZ, LX, HUB_ROW, L_IEC })',
 );
 
 let failures = 0;
@@ -64,6 +64,14 @@ console.log('Kaimal spectrum:');
   const U = 10, L = 340, fp = U / (4 * L);
   const fs = (f) => f * P.kaimal(f, U, 1, L);
   pass(fs(fp) > fs(fp * 1.01) && fs(fp) > fs(fp / 1.01), `f S peaks at U/(4L) = ${fp.toFixed(5)} Hz`);
+
+  // The half-variance line the plot draws: numerically, half of sigma^2 lies below it.
+  {
+    const fh = P.kaimalQuantile(0.5, U, L), n = 100000;
+    let below = 0;
+    for (let i = 0; i < n; i++) below += P.kaimal((i + 0.5) * fh / n, U, 1, L) * fh / n;
+    pass(Math.abs(below - 0.5) < 1e-4, `half of sigma^2 lies below ${fh.toFixed(5)} Hz`);
+  }
 
   // Inertial range: local log-log slope of S tends to -5/3.
   const slope = Math.log(P.kaimal(20, U, 1, L) / P.kaimal(10, U, 1, L)) / Math.log(2);
@@ -219,7 +227,7 @@ console.log('Probe record and spectrum estimate:');
     g.shape(340, 12);
     for (let off = 0; off < 3; off++) {
       P.probeRecord(g, off * 9000, U, sigma, T, N, rec);
-      for (const p of P.estimateSpectrum(rec, T / N, 10)) {
+      for (const p of P.estimateSpectrum(rec, T / N, 3)) {
         for (const b of want) if (p.f >= b.lo && p.f < b.hi) { b.est += p.S / P.kaimal(p.f, U, sigma, 340); b.n++; }
       }
     }

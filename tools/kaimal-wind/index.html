@@ -174,6 +174,14 @@ function kaimal(f, U, sigma, L) {
   return (sigma * sigma * 4 * L / U) / Math.pow(1 + 6 * f * L / U, 5 / 3);
 }
 
+/**
+ * The frequency below which a share q of the Kaimal variance lies. From the
+ * closed-form integral: the variance above f is sigma^2 (1 + 6fL/U)^(-2/3).
+ */
+function kaimalQuantile(q, U, L) {
+  return (Math.pow(1 - q, -1.5) - 1) * U / (6 * L);
+}
+
 /** IEC exponential coherence between two points r metres apart. a = Infinity is "independent". */
 function coherence(r, f, U, L, a) {
   if (r === 0) return 1;
@@ -336,11 +344,11 @@ function probeRecord(field, x0, U, sigma, seconds, n, out) {
 }
 
 /**
- * One-sided periodogram of a record, averaged into log-spaced bands so the
- * low frequencies (few, noisy) and high ones (many) each get a readable point.
- * Returns [{f, S}] with S in (m/s)^2/Hz.
+ * One-sided periodogram of a record, averaged over `perBand` neighbouring
+ * frequency bins, so each point on the linear axis is equally wide.
+ * Returns [{f, S}] with S in (m/s)^2/Hz and f the middle of the band.
  */
-function estimateSpectrum(x, dt, perDecade) {
+function estimateSpectrum(x, dt, perBand) {
   const n = x.length;
   let mean = 0;
   for (let i = 0; i < n; i++) mean += x[i];
@@ -353,11 +361,11 @@ function estimateSpectrum(x, dt, perDecade) {
   for (let k = 1; k < n / 2; k++) {
     const f = k * df;
     const S = (2 * dt / n) * (re[k] * re[k] + im[k] * im[k]);
-    const b = Math.floor(Math.log10(f) * perDecade);
+    const b = Math.floor((k - 1) / perBand);
     if (!band || band.b !== b) { band = { b, sf: 0, sS: 0, n: 0 }; out.push(band); }
-    band.sf += Math.log(f); band.sS += S; band.n++;
+    band.sf += f; band.sS += S; band.n++;
   }
-  return out.map((d) => ({ f: Math.exp(d.sf / d.n), S: d.sS / d.n }));
+  return out.map((d) => ({ f: d.sf / d.n, S: d.sS / d.n }));
 }
 
 /* --------------------------------------------------------------- state */
@@ -677,13 +685,16 @@ function niceStep(range) {
 }
 
 /*
- * The Kaimal spectrum as f S(f) on a log frequency axis with a linear
- * vertical one: the "premultiplied" form, in which equal areas under the
- * curve are equal variance. Log-log made a tail of 1e-4 look as present as a
- * peak of 1; fully linear crushed the peak into the first pixel.
+ * The Kaimal spectrum S(f) on linear axes, as the Sea lab draws its wave
+ * spectrum, so the two read the same way: the area under the curve is the
+ * variance. Only the first 0.2 Hz is shown - the wave band, for comparison -
+ * because the wind's variance is almost all below it. The curve is steep at
+ * the left, so a dashed line marks the frequency below which half of the
+ * variance lies; that is where the energy is, in one number.
  */
-const F_LO = 1e-3, F_HI = 2;                // Hz
-let specTopV = 1;                           // current top of the vertical axis, (m/s)^2
+const F_HI = 0.2;                           // Hz
+const EST_BAND = 3;                         // periodogram bins per estimate point
+let specTopV = 1;                           // current top of the vertical axis, (m/s)^2/Hz
 
 function drawSpectrum(dt) {
   const { specTop, specH } = lay;
@@ -691,12 +702,12 @@ function drawSpectrum(dt) {
   if (bottom - top < 30) return;
   const sg = sigma();
   // The axis follows the curve, as the Sea lab's does: it eases towards
-  // putting the peak about two thirds of the way up. The peak of f S is at
-  // f = U/(4L), where it is 0.2169 sigma^2 whatever U and L are.
-  const peak = (U / (4 * L)) * kaimal(U / (4 * L), U, sg, L);
-  specTopV += (peak / 0.66 - specTopV) * Math.min(1, dt * 3);
+  // putting the top of the curve, S(0) = 4 sigma^2 L / U, about three quarters
+  // of the way up, so the estimate's scatter above it still has room.
+  const peak = kaimal(0, U, sg, L);
+  specTopV += (peak / 0.75 - specTopV) * Math.min(1, dt * 3);
   specTopV = Math.max(specTopV, peak / 0.92);
-  const lx = (f) => left + (Math.log10(f / F_LO) / Math.log10(F_HI / F_LO)) * (right - left);
+  const lx = (f) => left + (f / F_HI) * (right - left);
   const ly = (v) => bottom - (v / specTopV) * (bottom - top);
   const clipY = (y) => Math.max(top - 2, Math.min(bottom, y));
 
@@ -704,13 +715,13 @@ function drawSpectrum(dt) {
   ctx.strokeStyle = pal.rule; ctx.lineWidth = 1; ctx.fillStyle = pal.muted;
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ctx.beginPath(); ctx.moveTo(left, Math.round(bottom) + 0.5); ctx.lineTo(right, Math.round(bottom) + 0.5); ctx.stroke();
-  for (const f of [0.001, 0.01, 0.1, 1]) {
-    const x = Math.round(lx(f)) + 0.5;
-    ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke(); ctx.globalAlpha = 1;
-    ctx.fillText(String(f), x, bottom + 5);
+  for (let i = 0; i <= 4; i++) {
+    const f = (i * F_HI) / 4, x = Math.round(lx(f)) + 0.5;
+    if (i > 0) { ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke(); ctx.globalAlpha = 1; }
+    ctx.fillText(i === 0 ? '0' : f.toFixed(2), x, bottom + 5);
   }
   ctx.textAlign = 'right';
-  ctx.fillText('f  (Hz, log scale)', right, bottom + 16);
+  ctx.fillText('f  (Hz)', right, bottom + 16);
   ctx.textBaseline = 'middle';
   const step = niceStep(specTopV);
   for (let v = step; v < specTopV; v += step) {
@@ -718,10 +729,9 @@ function drawSpectrum(dt) {
     ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke(); ctx.globalAlpha = 1;
     ctx.fillText(v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toPrecision(1), left - 6, y);
   }
-  ctx.fillText('0', left - 6, bottom);
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
   ctx.font = `600 10px ${FONT}`;
-  ctx.fillText(W < 560 ? 'KAIMAL  f·S(f)  (m/s)²' : 'KAIMAL SPECTRUM  f·S(f)  (m/s)²  ·  AREA UNDER THE CURVE = VARIANCE', 14, specTop + 8);
+  ctx.fillText(W < 560 ? 'KAIMAL  S(f)  (m/s)²/Hz' : 'KAIMAL SPECTRUM  S(f)  (m/s)²/Hz  ·  AREA UNDER THE CURVE = VARIANCE', 14, specTop + 8);
 
   ctx.save();
   ctx.beginPath(); ctx.rect(left, top - 4, right - left, bottom - top + 6); ctx.clip();
@@ -735,25 +745,26 @@ function drawSpectrum(dt) {
   let first = true;
   for (const p of estimate) {
     if (p.f > fMax) continue;
-    const x = lx(p.f), y = clipY(ly(p.f * p.S));
+    const x = lx(p.f), y = clipY(ly(p.S));
     if (first) { est.moveTo(x, y); first = false; } else est.lineTo(x, y);
   }
   ctx.stroke(est);
   for (const p of estimate) {
     if (p.f > fMax) continue;
-    ctx.beginPath(); ctx.arc(lx(p.f), clipY(ly(p.f * p.S)), 1.8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(lx(p.f), clipY(ly(p.S)), 1.8, 0, Math.PI * 2); ctx.fill();
   }
 
   // The model.
   const line = new Path2D();
+  // Spaced more finely near zero, where the curve falls fastest.
   const N = 240;
   for (let i = 0; i <= N; i++) {
-    const f = F_LO * (F_HI / F_LO) ** (i / N);
-    const y = ly(f * kaimal(f, U, sg, L));
+    const f = F_HI * (i / N) ** 2;
+    const y = ly(kaimal(f, U, sg, L));
     if (i === 0) line.moveTo(lx(f), y); else line.lineTo(lx(f), y);
   }
   const area = new Path2D(line);
-  area.lineTo(lx(F_HI), bottom); area.lineTo(lx(F_LO), bottom); area.closePath();
+  area.lineTo(lx(F_HI), bottom); area.lineTo(lx(0), bottom); area.closePath();
   const fg = ctx.createLinearGradient(0, top, 0, bottom);
   fg.addColorStop(0, rgba(pal.accent, 0.28)); fg.addColorStop(1, rgba(pal.accent, 0.06));
   ctx.fillStyle = fg; ctx.fill(area);
@@ -762,6 +773,17 @@ function drawSpectrum(dt) {
   ctx.strokeStyle = rgba(pal.accent, 0.75); ctx.lineWidth = 2.2; ctx.stroke(line);
   ctx.strokeStyle = pal.core; ctx.lineWidth = 1; ctx.stroke(line);
   ctx.restore();
+
+  // Half of the variance lies to the left of this line.
+  const fHalf = kaimalQuantile(0.5, U, L);
+  const xh = Math.round(lx(fHalf)) + 0.5;
+  ctx.save();
+  ctx.strokeStyle = rgba(pal.accent, 0.9); ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(xh, top); ctx.lineTo(xh, bottom); ctx.stroke();
+  ctx.restore();
+  ctx.font = `500 10px ${FONT}`; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+  ctx.fillStyle = rgba(pal.accent, 0.95);
+  haloText(`← half of σ² below ${fHalf < 0.01 ? fHalf.toFixed(4) : fHalf.toFixed(3)} Hz`, xh + 5, top + 2);
 
   // Key.
   ctx.font = `500 10px ${FONT}`; ctx.textBaseline = 'top'; ctx.textAlign = 'right';
@@ -834,7 +856,7 @@ function frame(now) {
   // the picture, and with the knobs as they are now.
   traceAt = probeRecord(field, x0, U, sigma(), TRACE_SECONDS, TRACE_N, trace);
   estimateAge += dt;
-  if (estimateAge > 0.5) { estimate = estimateSpectrum(trace, TRACE_SECONDS / TRACE_N, 10); estimateAge = 0; }
+  if (estimateAge > 0.5) { estimate = estimateSpectrum(trace, TRACE_SECONDS / TRACE_N, EST_BAND); estimateAge = 0; }
   render(dt);
   requestAnimationFrame(frame);
 }

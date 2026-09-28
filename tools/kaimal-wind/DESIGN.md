@@ -75,65 +75,36 @@ the tool is built so that this can be seen.
   changes. The trace is drawn thinned by a rule tied to those points, so the
   same samples are drawn every frame. `verify.mjs` pins this.
 - **The estimate** is the periodogram of the full 10-minute record, averaged
-  into ten bands per decade and drawn faintly behind the model. It is left
-  deliberately noisy at the low end, where a 10-minute record holds only a
-  handful of cycles. It stops at U/(4·DX), past which the field grid rather
-  than the wind shapes what it shows.
-- **f·S(f) on a log frequency axis with a linear vertical one** (changed
-  2026-09-28, from log–log with a −5/3 guide). Log–log made a tail at 10⁻⁴
-  look as present as a peak at 1, which misleads anyone who does not read
-  log axes for a living. Fully linear was turned down too: the peak, near
-  0.007 Hz, would sit in the first pixel of a 0–2 Hz axis. This premultiplied
-  form has one property a non-expert can use: **equal areas under the curve
-  are equal variance**, and the plot's title says so. The cost is the −5/3
-  law, which is no longer a straight line, so its guide was dropped. The
-  vertical axis eases to keep the peak about two thirds of the way up, as the
-  Sea lab's does. TI therefore shows in the relabelled ticks and in the
-  trace's swing, not in the curve's height: σ² spans a factor of about 1500
-  across the knobs, and no fixed axis holds that. On a linear axis the
-  estimate's scatter at the low end is plain to see. That is honest: a
-  10-minute record holds only a few cycles there.
-- **The Rotor sits in the middle of the picture** (2026-09-28). Air still to
-  come is on the left, air already measured on the right, and the shaded end
-  of the trace is the right half.
-- **Axes instead of a scale bar** (2026-09-28). The picture carries height in
-  metres up its left edge and distance from the Rotor along its bottom. The
-  trace carries m/s up the left and a fixed time axis from −120 s to "now",
-  as on an oscilloscope: the trace slides past the grid, and the grid stays
-  put. Labels on the picture have a halo so they read over any colour.
-- **Sliders, not a handle on the peak** as in the Sea lab. The peak's
-  position is set by U/L, so dragging it sideways would not say which of the
-  two it meant.
-- **Knob ranges**: U 4–25 m/s. TI 5–40 %, with IEC A/B/C notches computed from
-  the normal turbulence model at the current U. L 50–1000 m, logarithmic,
-  with the IEC notch at 340 m. a 0–63, with the last step "independent"
-  (a = ∞).
-- **The trace was costly to draw.** All 8192 samples stroked under a glow
-  took 34 ms a frame, so it draws one sample per screen pixel.
-
-## What the physics turned out to say
-
-- **A 10-minute record holds only part of σ².** Kaimal carries a lot of
-  energy at periods longer than ten minutes. At L = 340 m and U = 10 m/s,
-  about 18% of σ² sits below 1/600 Hz. So the trace's variance around its own
-  mean usually comes out below the dashed U ± σ, and a record's mean wanders
-  from U. That is real, not a fault, and it is worth saying out loud in the
-  lecture. The 32.8 km field itself loses about 4% of σ² to wavelengths
-  longer than itself.
-- **At IEC coherence the fine scales are nearly independent from one row to
-  the next.** Rows are 4.7 m apart, and at a = 12 small gusts decorrelate over
-  a few metres. The field therefore reads as horizontal streaks, with
-  large-scale structure clearly shared over the rotor. That is what IEC
-  coherence implies, and it matches the look of TurbSim slices.
+  over three neighbouring frequency bins (1/200 Hz per point) and drawn
+  faintly behind the model. It is left noisy on purpose: a 10-minute record
+  holds only a few cycles of the slowest gusts. It stops at U/(4·DX), past
+  which the field grid rather than the wind shapes what it shows.
+- **S(f) on linear axes, 0 to 0.2 Hz** (changed 2026-09-28). The same form
+  the Sea lab uses for its wave spectrum, so the two can be read side by side:
+  the area under the curve is the variance. The axis stops at 0.2 Hz, the
+  wave band, because almost all of the wind's variance lies below it. The
+  price is that the curve is a steep fall at the left edge, with most of the
+  area in the first few per cent of the axis. That is exactly the point
+  compared with waves, and a dashed line spells it out: half of σ² lies
+  below `kaimalQuantile(0.5)`, 0.305·U/L, about 0.009 Hz at the IEC defaults.
+  It stays on the axis for every slider setting (at most 0.15 Hz, at U = 25
+  and L = 50).
+  History: log–log with a −5/3 guide first, then f·S(f) on a log frequency
+  axis. Log–log made a tail at 10⁻⁴ look as present as a peak at 1, which
+  misleads anyone who does not read log axes for a living. The premultiplied
+  form was readable but did not compare with a wave spectrum. The −5/3 law
+  is not visible on either linear form; the model still has it and
+  `verify.mjs` still checks it. The vertical axis eases to keep S(0) about
+  three quarters of the way up, as the Sea lab's does, so TI shows in the
+  relabelled ticks and in the trace's swing rather than in the curve's height.
 - **Changing U looks like nothing in the picture**, apart from its speed. It
   is the frozen-turbulence point, and it may surprise students more than
   anything else here.
 
 ## Verification (`verify.mjs`)
 
-- The Kaimal spectrum integrates to σ², f·S peaks at U/(4L), and the slope
-  tends to −5/3 (the plot no longer shows the slope, but the model is
-  unchanged). The IEC normal turbulence intensity is checked by hand.
+- The Kaimal spectrum integrates to σ², f·S peaks at U/(4L), the slope
+  tends to −5/3, and half of σ² lies below the dashed line the plot draws. The IEC normal turbulence intensity is checked by hand.
 - Averaged over 16 fields, each height's variance matches the resolved
   Kaimal variance, and the coherence between two heights, estimated with a
   DFT written in the test, matches the IEC formula in two wavenumber bands.
@@ -142,5 +113,5 @@ the tool is built so that this can be seen.
   depend on a.
 - The Probe record is the hub row downwind, read back in time; a sample
   never changes once taken; and its
-  band-averaged estimate follows Kaimal within 10% from 0.01 to 1.5 Hz.
+  three-bin-averaged estimate follows Kaimal within 10% from 0.01 to 1.5 Hz.
 - Reshaping takes under 150 ms in Node.

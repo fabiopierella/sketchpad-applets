@@ -35,7 +35,28 @@ _Avoid_: trails, traces
 **Mode**:
 A shape the **Pile** vibrates in at its own natural frequency. The tool never names or displays one; students infer them.
 
-### Sea lab
+### Forcing lab
+
+**Forcing lab**:
+A **Pile** driven by a force applied directly to it, with no waves, showing why a forcing well below resonance can still make it swing.
+_Avoid_: resonance applet, Applet A
+
+**Waveform**:
+The shape of the force over one period: sine or sawtooth. Both have the same **Fundamental** amplitude, so a sawtooth only adds harmonics.
+_Avoid_: signal, forcing type
+
+**Fundamental**:
+The forcing's own repetition frequency, f_F, shown as a ratio of f₁.
+_Avoid_: forcing frequency (ambiguous once harmonics are on screen), driving frequency
+
+**Harmonic comb**:
+The sawtooth's spectrum: spikes at whole multiples of the **Fundamental**, the n-th of height 1/n.
+_Avoid_: overtones, partials, spectrum (on its own)
+
+**Amplification**:
+The **Pile**'s steady-state top amplitude divided by its static deflection under the same force amplitude. 1 means it behaves as if pushed slowly.
+_Avoid_: response, DAF (fine in a lecture, but the tool says what it means), gain
+
 
 **Sea**:
 A long-crested irregular sea surface seen side-on, built from one **Spectrum** and one set of random phases.

@@ -96,6 +96,24 @@ _Avoid_: reset, regenerate, reseed
 A floating wind turbine silhouette in the **Sea**, there only for scale. It does not respond to the waves.
 _Avoid_: platform, buoy, spar (these name particular designs)
 
+### Two-mass lab
+
+**Two-mass lab**:
+Two equal point masses on two equal springs in a **Spring chain**, upright like the **Pile**, free and undamped. Only the total motion is ever shown, never split into **Modes**. It is the simplest system with two **Modes**, for checking a derivation done on the board.
+_Avoid_: 2-DOF applet, two-element beam (that is a different stiffness model)
+
+**Spring chain**:
+Springs in series from the ground up: k₁ between the ground and m₁, acting on x₁; k₂ between m₁ and m₂, acting on x₂ − x₁. Each spring sees only the difference in displacement across it.
+_Avoid_: shear building (fine in a lecture), beam model
+
+**Release**:
+Letting go of the masses after dragging them to an initial displacement. In general the motion that follows mixes both **Modes**; released exactly in one **Mode**'s shape, it keeps that shape.
+_Avoid_: drop, let go, initial condition
+
+**Show the answer**:
+The toggle that reveals the characteristic equation with the current numbers, ω₁, ω₂, the shape ratios x₂/x₁, and the buttons that start the system in each **Mode**. Off by default, so students try first and get the answer after.
+_Avoid_: solution, results
+
 ### Wind lab
 
 **Wind field**:
@@ -125,6 +143,7 @@ _Avoid_: turbine, disc
 - A **Sea** has exactly one **Spectrum** and one set of phases; a parameter change alters the first, **New sea** alters only the second.
 - The **Kaimal spectrum** and the **Coherence** together decide a **Wind field**; either can change while the other stays put.
 - Under **Frozen turbulence** U sets only how fast the **Wind field** passes and where the **Kaimal spectrum** sits in frequency, never the field's shape in space.
+- A **Release** in exactly one **Mode**'s shape stays in that shape; any other **Release** is a mix of both.
 - A heavier **Nacelle** lowers every natural frequency and moves the top of the **Pile** towards being a node of the second **Mode**.
 
 ## Flagged ambiguities
@@ -132,3 +151,4 @@ _Avoid_: turbine, disc
 - "Pinch" was used for the hand interaction; resolved into two distinct gestures, **Tap** and **Shake**.
 - "Vertical mass" first meant a mass sliding along the height (as in the cantilever mode lab); resolved to the **Nacelle**, fixed at the top.
 - "The coherence of the Kaimal spectrum" was asked about. There is none: the **Kaimal spectrum** is a one-point spectrum, and **Coherence** is a separate model (IEC exponential) that the **Wind field** needs as well.
+- "Two elements beam" was used for the two-mass system. Resolved to a **Spring chain**: a bending-element beam would couple both masses through every term of K.

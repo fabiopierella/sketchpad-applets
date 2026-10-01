@@ -58,6 +58,24 @@ The **Pile**'s steady-state top amplitude divided by its static deflection under
 _Avoid_: response, DAF (fine in a lecture, but the tool says what it means), gain
 
 
+### Modes lab
+
+**Modes lab**:
+The first three **Modes** of a uniform clamped pile, each its own oscillator, driven by the **Forcing lab**'s force at one height. Shows that only mode 1 really resonates, and that where the load acts decides how much each mode feels it.
+_Avoid_: Applet B, modal applet
+
+**Load height (z₀)**:
+Where the one point force acts on the **Pile**. At the top until **Move the load** is pressed.
+_Avoid_: load position, application point
+
+**Generalized force**:
+How much of the load a **Mode** receives: the force times the **Mode**'s shape at the **Load height**, φⱼ(z₀). Zero at a node.
+_Avoid_: modal force, participation (that is a different quantity)
+
+**Softened sawtooth**:
+The sawtooth both labs use: the ideal comb passed through a smooth two-pole low-pass at 3 f₁, because no real load drops in zero time. Harmonics near f₁ are untouched; the comb has faded by f₂.
+_Avoid_: filtered sawtooth, rounded sawtooth
+
 **Sea**:
 A long-crested irregular sea surface seen side-on, built from one **Spectrum** and one set of random phases.
 _Avoid_: waves (a sea is many waves), wave field, sea state (that is the three numbers, not the surface)

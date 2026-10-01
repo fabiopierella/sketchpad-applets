@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modes lab</title>
+<style>
+  /* Family look: the Pile lab's ground, glass and type. */
+  :root {
+    --ground-hi: #eef1f7; --ground-mid: #e5eaf3; --ground-lo: #d9dfeb;
+    --glass: rgba(255,255,255,.72); --glass-edge: rgba(15,23,42,.10);
+    --ink: #0f172a; --soft: #475569; --muted: #8a94a2;
+    --accent: #2563eb; --sky: rgba(255,255,255,.55);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground-hi: #1a1f29; --ground-mid: #141922; --ground-lo: #0e1219;
+      --glass: rgba(30,36,48,.72); --glass-edge: rgba(226,232,240,.10);
+      --ink: #e2e8f0; --soft: #c3cbd6; --muted: #8b95a5;
+      --accent: #60a5fa; --sky: rgba(148,163,184,.08);
+    }
+  }
+  html, body { margin: 0; height: 100%; width: 100%; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(120% 85% at 50% -8%, var(--sky), rgba(255,255,255,0) 58%),
+      radial-gradient(85% 65% at 50% 108%, rgba(37,99,235,.11), rgba(37,99,235,0) 72%),
+      radial-gradient(140% 120% at 50% 50%, rgba(15,23,42,0) 55%, rgba(15,23,42,.07) 100%),
+      linear-gradient(180deg, var(--ground-hi) 0%, var(--ground-mid) 46%, var(--ground-lo) 100%);
+    background-color: var(--ground-mid);
+    font: 500 13px/1.35 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--ink);
+    -webkit-text-size-adjust: 100%;
+  }
+  canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+  .glass {
+    position: fixed; top: 12px; z-index: 2;
+    background: var(--glass); border: 1px solid var(--glass-edge);
+    border-radius: 11px; box-shadow: 0 1px 3px rgba(15,23,42,.08);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  .panel { left: 12px; padding: 8px 12px 6px; display: flex; flex-direction: column; gap: 6px; width: min(330px, 62vw); }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  label, .lbl { color: var(--soft); font-weight: 600; font-size: 13px; letter-spacing: .02em; }
+  output { font-variant-numeric: tabular-nums; color: var(--ink); font-size: 15px; font-weight: 650; }
+  input[type=range] { width: 100%; margin: 0; accent-color: var(--accent); height: 26px; }
+  .seg { display: flex; gap: 0; border: 1px solid var(--glass-edge); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    flex: 1; padding: 6px 9px; border: 0; background: transparent; cursor: pointer; white-space: nowrap;
+    font: 600 12px/1 system-ui, -apple-system, "Segoe UI", Arial, sans-serif; color: var(--soft);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .seg button[aria-pressed=true] { background: var(--accent); color: #fff; }
+  .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  #move {
+    right: 12px; height: 36px; padding: 0 14px; cursor: pointer;
+    font: 600 13px/1 system-ui, -apple-system, "Segoe UI", Arial, sans-serif; color: var(--soft); letter-spacing: .02em;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #move[aria-pressed=true] { color: #fff; background: var(--accent); }
+  #move:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="Three modes of a clamped pile driven by one periodic force. The spectrum shows the force's harmonics against the three natural frequencies; each mode's bar shows how much it responds."></canvas>
+
+<div class="glass panel">
+  <div class="row"><span class="lbl">Pile</span>
+    <div class="seg" role="group" aria-label="Pile">
+      <button type="button" id="pUniform" aria-pressed="true">Uniform beam</button>
+      <button type="button" id="pLab" aria-pressed="false">Lab test</button>
+    </div>
+  </div>
+  <div class="row"><span class="lbl">Waveform</span>
+    <div class="seg" role="group" aria-label="Waveform">
+      <button type="button" id="wSine" aria-pressed="false">Sine</button>
+      <button type="button" id="wSaw" aria-pressed="true">Sawtooth</button>
+    </div>
+  </div>
+  <div class="row"><label for="ff">Fundamental</label><output id="ffOut" for="ff"></output></div>
+  <input type="range" id="ff" min="0.15" max="1.5" step="0.001" value="0.30">
+</div>
+<button id="move" class="glass" type="button" aria-pressed="false">Move the load</button>
+
+<script>
+/* ------------------------------------------------------- forcing engine
+ *
+ * Shared, character for character, by the Forcing lab and the Modes lab;
+ * verify.mjs in each slices it out by its first line and the "state" banner.
+ *
+ * Everything is steady state, in units where f1 = 1. The force is periodic
+ * with fundamental fF, so it is a sum of harmonics at n*fF; each harmonic
+ * passes through a mode's transfer function on its own and the results add.
+ * No time-stepping, so the display follows the slider at once.
+ *
+ * The sawtooth is softened: an ideal one drops instantly, and that drop taps
+ * every mode of the pile into ringing at its own frequency, whatever fF is.
+ * A real load never drops in zero time, so the ideal comb (heights 1/n) is
+ * passed through a two-pole low-pass at EDGE_FC * f1. The harmonics that can
+ * reach f1 are barely touched; those far above it fade smoothly, with no
+ * notches. The sine is exactly the sawtooth's fundamental, so the sawtooth
+ * only ever *adds* harmonics.
+ */
+const ZETA = 0.05;                   // display damping; the lab test's 0.017 makes peaks too narrow to find
+const EDGE_FC = 3;                   // softening corner, in units of f1; 0 gives the ideal sawtooth
+
+/** Complex amplitude [re, im] of each harmonic n = 1..N, the fundamental of
+    magnitude 1, so that F(theta) = sum re*cos(n theta) - im*sin(n theta). */
+function forcingCoeffs(waveform, fF, edgeFc, N) {
+  const c = [];
+  const M = waveform === 'sine' ? 1 : N;
+  for (let n = 1; n <= M; n++) {
+    let re = 0, im = 1 / n;          // ideal rising sawtooth: -sum sin(n theta)/n
+    if (edgeFc > 0) {
+      for (let p = 0; p < 2; p++) {  // divide by (1 + i n fF / fc), twice
+        const b = (n * fF) / edgeFc, m = 1 + b * b;
+        [re, im] = [(re + im * b) / m, (im - re * b) / m];
+      }
+    }
+    c.push([re, im]);
+  }
+  const s = Math.hypot(c[0][0], c[0][1]);
+  return c.map(([re, im]) => [re / s, im / s]);
+}
+
+/** Enough harmonics to pass three times the highest frequency of interest. */
+function harmonicCount(waveform, fF, fTop) {
+  return waveform === 'sine' ? 1 : Math.min(600, Math.ceil((3 * fTop) / fF));
+}
+
+/** A mode's response to a unit force at frequency ratio w, divided by its static response. */
+function transfer(w, zeta) {
+  const dr = 1 - w * w, di = 2 * zeta * w, m = dr * dr + di * di;
+  return [dr / m, -di / m];
+}
+
+/** Value of the series at phase theta. */
+function evalSeries(c, theta) {
+  let x = 0;
+  for (let n = 0; n < c.length; n++) {
+    const p = (n + 1) * theta;
+    x += c[n][0] * Math.cos(p) - c[n][1] * Math.sin(p);
+  }
+  return x;
+}
+
+/** Largest |value| over one period, sampled finely enough for the top harmonic. */
+function seriesPeak(c) {
+  let T = 256;
+  while (T < 4 * c.length) T *= 2;
+  const cs = new Float64Array(T), sn = new Float64Array(T);
+  for (let k = 0; k < T; k++) { cs[k] = Math.cos((2 * Math.PI * k) / T); sn[k] = Math.sin((2 * Math.PI * k) / T); }
+  let peak = 0;
+  for (let k = 0; k < T; k++) {
+    let x = 0;
+    for (let n = 0; n < c.length; n++) {
+      const j = ((n + 1) * k) % T;
+      x += c[n][0] * cs[j] - c[n][1] * sn[j];
+    }
+    peak = Math.max(peak, Math.abs(x));
+  }
+  return peak;
+}
+
+/**
+ * Steady-state motion of one mode with natural frequency ratio r = fj/f1,
+ * driven by forcing coefficients c at fundamental fF. Normalised so the
+ * static response to a force of fundamental amplitude 1 is 1: `peak` is then
+ * the Amplification.
+ */
+function steadyState(c, fF, r, zeta) {
+  const a = c.map(([re, im], i) => {
+    const [hr, hi] = transfer(((i + 1) * fF) / r, zeta);
+    return [re * hr - im * hi, re * hi + im * hr];
+  });
+  return { coeffs: a, peak: seriesPeak(a) };
+}
+
+
+/* ---------------------------------------------------------------- modes
+ *
+ * Clamped-free beam shapes, unit at the top. Mode frequencies of a clamped
+ * beam are not whole multiples of f1 (6.27 and 17.55 for a uniform one), so
+ * the evenly spaced comb usually misses modes 2 and 3. The lab-test preset
+ * (Bredmose et al. 2013: 0.28, 2.0 and 5.6 Hz) changes the frequencies and
+ * keeps the uniform shapes, which is close enough to see where the nodes are.
+ */
+const BETAS = [1.875104068711961, 4.694091132974175, 7.854757438237613];
+function modeShape(j, x) {
+  const b = BETAS[j], s = (Math.cosh(b) + Math.cos(b)) / (Math.sinh(b) + Math.sin(b));
+  const f = (y) => Math.cosh(b * y) - Math.cos(b * y) - s * (Math.sinh(b * y) - Math.sin(b * y));
+  return f(x) / f(1);
+}
+/** Heights where a mode does not move, found by bisection; used to let the load settle exactly on one. */
+function modeNodes(j) {
+  const out = [];
+  let a = 0.02, fa = modeShape(j, a);
+  for (let x = 0.021; x <= 1; x += 0.001) {
+    const fx = modeShape(j, x);
+    if (fa * fx < 0) {
+      let lo = x - 0.001, hi = x;
+      for (let k = 0; k < 60; k++) { const m = (lo + hi) / 2; if (modeShape(j, lo) * modeShape(j, m) <= 0) hi = m; else lo = m; }
+      out.push((lo + hi) / 2);
+    }
+    fa = fx;
+  }
+  return out;
+}
+const PRESETS = {
+  uniform: BETAS.map((b) => (b / BETAS[0]) ** 2),
+  lab: [1, 2.0 / 0.28, 5.6 / 0.28],
+};
+
+/* --------------------------------------------------------------- state */
+
+const params = new URLSearchParams(location.search);
+const edgeParam = parseFloat(params.get('edge'));
+const EDGE = Number.isFinite(edgeParam) && edgeParam >= 0 ? edgeParam : EDGE_FC;
+
+const SPEC_MAX = 21;
+let preset = 'uniform', waveform = 'saw', fF = 0.30;
+let loadAt = 1, stage2 = false;
+let forcing = null, forcePeak = 1, modes = [];
+const shown = [1, 1, 1];             // each mode's bar as drawn, easing to the true value
+
+const TRACE_SECONDS = 5, TRACE_HZ = 60, TRACE_N = TRACE_SECONDS * TRACE_HZ;
+const trace = new Float32Array(TRACE_N);
+let traceHead = 0, traceCount = 0, traceAcc = 0;
+let theta = 0;
+
+const NODES = [0, 1, 2].map(modeNodes).flat();
+const SNAP = 0.008;
+
+function ratios() { return PRESETS[preset]; }
+
+function recompute() {
+  const r = ratios();
+  const N = harmonicCount(waveform, fF, r[2]);
+  forcing = forcingCoeffs(waveform, fF, EDGE, N);
+  forcePeak = seriesPeak(forcing);
+  modes = r.map((rj, j) => {
+    const ss = steadyState(forcing, fF, rj, ZETA);
+    const gf = modeShape(j, loadAt);   // generalized force per unit load: the shape where it pushes
+    return { ...ss, gf, bar: Math.abs(gf) * ss.peak };
+  });
+}
+
+const SAMPLES = 48;
+const SHAPES = [0, 1, 2].map((j) => Array.from({ length: SAMPLES + 1 }, (_, i) => modeShape(j, i / SAMPLES)));
+
+/* ------------------------------------------------------------ rendering */
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, lay = null;
+
+function readPalette() {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  return dark ? {
+    pile: '#cbd5e1', pileLo: '#94a3b8', shadow: 'rgba(0,0,0,0.35)', seam: 'rgba(255,255,255,0.18)',
+    accent: '96,165,250', warm: '251,146,60', ink: '#e2e8f0', muted: 'rgba(148,163,184,0.85)',
+    rule: 'rgba(148,163,184,0.28)', soil: '71,85,105',
+  } : {
+    pile: '#1f2937', pileLo: '#4b5563', shadow: 'rgba(15,23,42,0.16)', seam: 'rgba(255,255,255,0.30)',
+    accent: '37,99,235', warm: '234,88,12', ink: '#0f172a', muted: 'rgba(71,85,105,0.9)',
+    rule: 'rgba(100,116,139,0.30)', soil: '100,116,139',
+  };
+}
+let pal = readPalette();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { pal = readPalette(); });
+const rgba = (c, a) => `rgba(${c},${a.toFixed(3)})`;
+const font = (w, px) => `${w} ${px}px system-ui,-apple-system,"Segoe UI",Arial,sans-serif`;
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = cv.clientWidth; H = cv.clientHeight;
+  const bw = Math.round(W * DPR), bh = Math.round(H * DPR);
+  if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+  layout();
+}
+
+function layout() {
+  const top = 160, pad = 16;
+  const fs = Math.max(12, Math.min(18, Math.min(W, H) / 38));
+  const avail = H - top - pad;
+  // The force over time beside its spectrum, or above it when narrow.
+  const bandH = Math.max(110, avail * 0.3);
+  let force, spec;
+  if (W > 720) {
+    const fw = (W - 2 * pad) * 0.3;
+    force = { x: pad, y: top, w: fw, h: bandH };
+    spec = { x: pad + fw + 2 * pad, y: top, w: W - 2 * pad - fw - 2 * pad, h: bandH };
+  } else {
+    force = { x: pad, y: top, w: W - 2 * pad, h: bandH * 0.45 };
+    spec = { x: pad, y: top + bandH * 0.45 + pad / 2, w: W - 2 * pad, h: bandH * 0.75 };
+  }
+  const py = spec.y + spec.h + pad;
+  const ph = H - py - pad;
+  const colW = (W - 2 * pad) / 3;
+  const cols = [0, 1, 2].map((j) => {
+    const x = pad + j * colW;
+    const barW = Math.max(18, Math.min(34, colW * 0.12));
+    const labelH = fs * 2.6;
+    const baseY = py + ph - 12, scale = Math.max(30, ph - labelH - 30);
+    return { x, w: colW, cx: x + (colW - barW - 30) * 0.5, baseY, scale,
+      bar: { x: x + colW - barW - 18, y: baseY - scale, w: barW, h: scale }, labelY: py };
+  });
+  lay = { fs, force, spec, cols, pileW: Math.max(4, Math.min(11, ph * 0.022)) };
+}
+
+const AMP_PER_UNIT = 0.022;
+const BAR_MAX = 12;
+
+function drawForce() {
+  const p = lay.force, fs = lay.fs;
+  ctx.fillStyle = pal.muted; ctx.font = font(650, fs * 0.8); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('FORCE  ·  last ' + TRACE_SECONDS + ' s', p.x, p.y);
+  const y0 = p.y + fs * 1.4, h = p.h - fs * 1.6, mid = y0 + h / 2, amp = h * 0.45;
+  ctx.strokeStyle = rgba(pal.accent, 0.18); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(p.x, Math.round(mid) + 0.5); ctx.lineTo(p.x + p.w, Math.round(mid) + 0.5); ctx.stroke();
+  const n = traceCount, px = p.w / (TRACE_N - 1);
+  if (n < 2) return;
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const v = trace[(traceHead - n + i + TRACE_N) % TRACE_N];
+    const x = p.x + p.w - (n - 1 - i) * px, y = mid - (v / forcePeak) * amp;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = rgba(pal.warm, 0.18); ctx.lineWidth = 6; ctx.stroke();
+  ctx.strokeStyle = rgba(pal.warm, 0.95); ctx.lineWidth = 2.2; ctx.stroke();
+}
+
+function drawSpectrum() {
+  const p = lay.spec, fs = lay.fs, r = ratios();
+  ctx.fillStyle = pal.muted; ctx.font = font(650, fs * 0.8); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('FORCE SPECTRUM', p.x, p.y);
+  const x0 = p.x + 8, x1 = p.x + p.w - 8, yb = p.y + p.h - fs * 1.8, yt = p.y + fs * 2.6;
+  const xOf = (f) => x0 + ((x1 - x0) * f) / SPEC_MAX;
+  ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x0, Math.round(yb) + 0.5); ctx.lineTo(x1, Math.round(yb) + 0.5); ctx.stroke();
+  ctx.fillStyle = pal.muted; ctx.font = font(500, fs * 0.8); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let k = 0; k <= SPEC_MAX; k++) {
+    const x = Math.round(xOf(k)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, yb); ctx.lineTo(x, yb + (k % 5 === 0 ? 6 : 3)); ctx.stroke();
+    if (k % 5 === 0) ctx.fillText(String(k), x, yb + 7);
+  }
+  ctx.textAlign = 'right'; ctx.fillText('f / f₁', x1, yb + 7 + fs);
+  const subs = ['₁', '₂', '₃'];
+  r.forEach((rj, j) => {
+    const x = Math.round(xOf(rj)) + 0.5;
+    ctx.setLineDash([5, 5]); ctx.strokeStyle = rgba(pal.warm, 0.8); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x, yb); ctx.lineTo(x, yt - fs * 0.5); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = rgba(pal.warm, 1); ctx.font = font(700, fs); ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('f' + subs[j], x, yt - fs * 0.6);
+  });
+  const h = yb - yt;
+  for (let i = 0; i < forcing.length; i++) {
+    const f = (i + 1) * fF;
+    if (f > SPEC_MAX) break;
+    const a = Math.hypot(forcing[i][0], forcing[i][1]);
+    if (a * h < 0.6) continue;
+    const x = xOf(f), hot = r.some((rj) => Math.abs(f - rj) < 1.5 * ZETA * rj);
+    const top = yb - a * h;
+    ctx.lineCap = 'round';
+    if (hot) { ctx.strokeStyle = rgba(pal.warm, 0.25); ctx.lineWidth = 10; ctx.beginPath(); ctx.moveTo(x, yb); ctx.lineTo(x, top); ctx.stroke(); }
+    ctx.strokeStyle = hot ? rgba(pal.warm, 1) : rgba(pal.accent, 0.9); ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x, yb); ctx.lineTo(x, top); ctx.stroke();
+  }
+}
+
+function drawColumn(j, q, force) {
+  const c = lay.cols[j], fs = lay.fs, w = lay.pileW, r = ratios();
+  const X = (i, d) => c.cx + SHAPES[j][i] * d * c.scale;
+  const Y = (z) => c.baseY - z * c.scale;
+  // Title.
+  ctx.fillStyle = pal.ink; ctx.font = font(700, fs * 1.05); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('Mode ' + (j + 1), c.x + 4, c.labelY);
+  ctx.fillStyle = pal.muted; ctx.font = font(500, fs * 0.8);
+  ctx.fillText(j === 0 ? 'f₁' : 'f' + ['₁', '₂', '₃'][j] + ' = ' + r[j].toFixed(1) + ' f₁', c.x + 4, c.labelY + fs * 1.25);
+  // Ground.
+  ctx.strokeStyle = rgba(pal.soil, 0.55); ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(c.cx - c.scale * 0.25, c.baseY + 0.5); ctx.lineTo(c.cx + c.scale * 0.25, c.baseY + 0.5); ctx.stroke();
+  // Envelope, then the pile.
+  const env = shown[j] * AMP_PER_UNIT;
+  ctx.fillStyle = rgba(pal.accent, 0.08); ctx.beginPath();
+  for (let i = 0; i <= SAMPLES; i++) ctx.lineTo(X(i, env), Y(i / SAMPLES));
+  for (let i = SAMPLES; i >= 0; i--) ctx.lineTo(X(i, -env), Y(i / SAMPLES));
+  ctx.fill();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  const stroke = (width, style) => {
+    ctx.lineWidth = width; ctx.strokeStyle = style; ctx.beginPath();
+    for (let i = 0; i <= SAMPLES; i++) { if (i === 0) ctx.moveTo(X(i, q), Y(i / SAMPLES)); else ctx.lineTo(X(i, q), Y(i / SAMPLES)); }
+    ctx.stroke();
+  };
+  stroke(w * 1.9, pal.shadow);
+  stroke(w, pal.pile);
+  stroke(Math.max(0.6, w * 0.22), pal.seam);
+
+  // The load: an arrow at its height, its length following the force.
+  const z = loadAt, iz = Math.round(z * SAMPLES), ay = Y(z), ax = X(iz, q) - 10;
+  const len = force * c.scale * 0.08, dir = Math.sign(len) || 1;
+  ctx.strokeStyle = rgba(pal.warm, 0.95); ctx.fillStyle = rgba(pal.warm, 0.95); ctx.lineWidth = 3;
+  const tail = ax - Math.abs(len) - 4, from = dir > 0 ? tail : ax - 4, to = dir > 0 ? ax : tail;
+  if (Math.abs(len) > 2) {
+    ctx.beginPath(); ctx.moveTo(from, ay); ctx.lineTo(to, ay); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(to, ay); ctx.lineTo(to - dir * 8, ay - 5); ctx.lineTo(to - dir * 8, ay + 5); ctx.closePath(); ctx.fill();
+  }
+  if (stage2) {
+    // Where the load acts, and how much of this mode's shape is there.
+    ctx.setLineDash([4, 5]); ctx.strokeStyle = rgba(pal.warm, 0.5); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(c.x + 4, Math.round(ay) + 0.5); ctx.lineTo(c.bar.x - 8, Math.round(ay) + 0.5); ctx.stroke(); ctx.setLineDash([]);
+    // The still shape, faint, with a dot where the load meets it.
+    const ref = 0.12;
+    ctx.strokeStyle = rgba(pal.accent, 0.35); ctx.lineWidth = 1.5; ctx.beginPath();
+    for (let i = 0; i <= SAMPLES; i++) { const x = c.cx + SHAPES[j][i] * ref * c.scale, y = Y(i / SAMPLES); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+    ctx.stroke();
+    const phi = modeShape(j, z);
+    ctx.fillStyle = rgba(pal.accent, 1);
+    ctx.beginPath(); ctx.arc(c.cx + phi * ref * c.scale, ay, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = pal.ink; ctx.font = font(650, fs * 0.85); ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    const label = 'φ' + ['₁', '₂', '₃'][j] + '(z₀) = ' + (Math.abs(phi) < 0.005 ? '0' : phi.toFixed(2));
+    ctx.fillText(label, c.cx + 0.16 * c.scale, ay - 6);
+  }
+
+  // The bar.
+  const b = c.bar, yOf = (v) => b.y + b.h * (1 - Math.min(v, BAR_MAX) / BAR_MAX);
+  ctx.fillStyle = rgba(pal.accent, 0.10);
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(b.x, b.y, b.w, b.h, 5) : ctx.rect(b.x, b.y, b.w, b.h); ctx.fill();
+  const v = shown[j], y = yOf(v);
+  const g = ctx.createLinearGradient(0, b.y + b.h, 0, b.y);
+  g.addColorStop(0, rgba(pal.accent, 0.55)); g.addColorStop(1, rgba(pal.warm, 0.9));
+  ctx.fillStyle = g;
+  if (b.y + b.h - y > 0.5) { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(b.x, y, b.w, b.y + b.h - y, 5) : ctx.rect(b.x, y, b.w, b.y + b.h - y); ctx.fill(); }
+  const ys = Math.round(yOf(1)) + 0.5;
+  ctx.strokeStyle = pal.ink; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(b.x - 5, ys); ctx.lineTo(b.x + b.w + 5, ys); ctx.stroke();
+  if (j === 0) { ctx.fillStyle = pal.muted; ctx.font = font(500, fs * 0.7); ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText('static', b.x - 7, ys); }
+  ctx.fillStyle = pal.ink; ctx.font = font(700, fs * 1.15); ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText('×' + v.toFixed(1), b.x + b.w / 2, b.y - 4);
+}
+
+function render() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  drawForce();
+  drawSpectrum();
+  const force = evalSeries(forcing, theta) / forcePeak;
+  modes.forEach((m, j) => {
+    // Normalised steady-state motion, signed by which way this mode sees the load, at the eased size.
+    const norm = m.peak > 0 ? evalSeries(m.coeffs, theta) / m.peak : 0;
+    drawColumn(j, Math.sign(m.gf) * norm * shown[j] * AMP_PER_UNIT, force);
+  });
+  ctx.fillStyle = pal.muted; ctx.font = font(500, lay.fs * 0.7); ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+  ctx.fillText('each mode against its own static response', W - 16, H - 4);
+}
+
+/* ------------------------------------------------------------- controls */
+
+const ffIn = document.getElementById('ff'), ffOut = document.getElementById('ffOut');
+const seg = {
+  pUniform: () => { preset = 'uniform'; }, pLab: () => { preset = 'lab'; },
+  wSine: () => { waveform = 'sine'; }, wSaw: () => { waveform = 'saw'; },
+};
+function showControls() {
+  ffOut.textContent = fF.toFixed(2) + ' f₁';
+  document.getElementById('pUniform').setAttribute('aria-pressed', String(preset === 'uniform'));
+  document.getElementById('pLab').setAttribute('aria-pressed', String(preset === 'lab'));
+  document.getElementById('wSine').setAttribute('aria-pressed', String(waveform === 'sine'));
+  document.getElementById('wSaw').setAttribute('aria-pressed', String(waveform === 'saw'));
+  moveBtn.setAttribute('aria-pressed', String(stage2));
+}
+for (const [id, fn] of Object.entries(seg)) document.getElementById(id).addEventListener('click', () => { fn(); recompute(); showControls(); });
+ffIn.addEventListener('input', () => { fF = parseFloat(ffIn.value); recompute(); showControls(); });
+const moveBtn = document.getElementById('move');
+moveBtn.addEventListener('click', () => {
+  stage2 = !stage2;
+  if (!stage2) loadAt = 1;             // back to stage 1: the load returns to the top
+  recompute(); showControls();
+});
+
+/* Stage 2: drag anywhere over the piles to move the load up and down. */
+let dragging = null;
+function heightFrom(e) {
+  const r = cv.getBoundingClientRect(), y = e.clientY - r.top, c = lay.cols[0];
+  let z = Math.min(1, Math.max(0.02, (c.baseY - y) / c.scale));
+  for (const n of NODES) if (Math.abs(z - n) < SNAP) z = n;   // settle exactly on a node
+  return z;
+}
+function overPiles(e) {
+  const r = cv.getBoundingClientRect(), y = e.clientY - r.top, c = lay.cols[0];
+  return y > c.labelY && y < c.baseY + 20;
+}
+cv.addEventListener('pointerdown', (e) => {
+  if (!stage2 || !e.isPrimary || !overPiles(e)) return;
+  dragging = e.pointerId; cv.setPointerCapture(e.pointerId);
+  loadAt = heightFrom(e); recompute(); e.preventDefault();
+});
+cv.addEventListener('pointermove', (e) => {
+  if (dragging === null) { cv.style.cursor = stage2 && overPiles(e) ? 'ns-resize' : 'default'; return; }
+  if (e.pointerId !== dragging) return;
+  loadAt = heightFrom(e); recompute();
+});
+const endDrag = (e) => { if (e.pointerId === dragging) dragging = null; };
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', endDrag);
+
+/* ----------------------------------------------------------------- loop */
+
+const EASE_S = 0.45;
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  theta = (theta + 2 * Math.PI * fF * dt) % (2 * Math.PI);   // f1 swings once a second on screen
+  traceAcc += dt * TRACE_HZ;
+  while (traceAcc >= 1) {
+    traceAcc -= 1;
+    trace[traceHead] = evalSeries(forcing, theta);
+    traceHead = (traceHead + 1) % TRACE_N;
+    traceCount = Math.min(TRACE_N, traceCount + 1);
+  }
+  for (let j = 0; j < 3; j++) shown[j] += (modes[j].bar - shown[j]) * Math.min(1, (dt / EASE_S) * 2.2);
+  render();
+  requestAnimationFrame(frame);
+}
+
+recompute();
+modes.forEach((m, j) => { shown[j] = m.bar; });
+showControls();
+new ResizeObserver(resize).observe(cv);
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

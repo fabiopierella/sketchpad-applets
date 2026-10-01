@@ -1,0 +1,8 @@
+{
+  "name": "Modes lab",
+  "description": "Three modes of a clamped pile under one periodic force. The comb of harmonics is evenly spaced and the modes are not, so only mode 1 really resonates; move the load and see how much each mode feels where you push.",
+  "status": "live",
+  "entry": "index.html",
+  "tags": ["vibration", "structures", "wind-turbines"],
+  "course": "46211"
+}

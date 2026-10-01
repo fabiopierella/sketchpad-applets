@@ -5,6 +5,8 @@
     "pile-modes",
     "sea-spectrum",
     "sea-spectrum-3d",
-    "kaimal-wind"
+    "kaimal-wind",
+    "forcing-lab",
+    "modes-lab"
   ]
 }

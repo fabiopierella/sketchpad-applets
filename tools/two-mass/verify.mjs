@@ -28,7 +28,7 @@ if (start < 0 || end < 0 || end < start) {
   console.error('Could not find the physics section in index.html. Fix the markers here and there together.');
   process.exit(1);
 }
-const P = eval(html.slice(start, end) + '; ({ characteristic, modes, modeStart, createSim })');
+const P = eval(html.slice(start, end) + '; ({ characteristic, modes, modeStart, modalAmplitudes, createSim })');
 
 let failures = 0;
 const pass = (ok, msg) => {
@@ -114,6 +114,37 @@ console.log('Holding:');
   sim.advance(5);
   pass(sim.held && sim.x[0] === 0.9 && sim.x[1] === other,
     'dragging a mass stops everything, and the other mass stays where it was');
+}
+
+console.log('The mode plane:');
+{
+  const [q11, q12] = P.modalAmplitudes(...P.modeStart(0, 1));
+  const [q21, q22] = P.modalAmplitudes(...P.modeStart(1, 1));
+  pass(near(q11, 1, 1e-12) && near(q12, 0, 1e-12) && near(q21, 0, 1e-12) && near(q22, 1, 1e-12),
+    'a start in mode 1 reads q = (1, 0), in mode 2 q = (0, 1)');
+  const [a1, b1] = P.modeStart(0, 1), [a2, b2] = P.modeStart(1, 1);
+  let worst = 0;
+  for (let i = 0; i < 200; i++) {
+    const x1 = Math.sin(i * 1.7) * 1.6, x2 = Math.cos(i * 2.3) * 1.6;
+    const [q1, q2] = P.modalAmplitudes(x1, x2);
+    worst = Math.max(worst, Math.abs(q1 * a1 + q2 * a2 - x1), Math.abs(q1 * b1 + q2 * b2 - x2));
+  }
+  pass(worst < 1e-12, `q1 phi1 + q2 phi2 rebuilds any displacement (worst error ${worst.toExponential(1)})`);
+
+  // The honest part: released from a mix, the simulated motion projected onto
+  // each mode swings as q_r cos(omega_r t) - each keeps its amplitude for ever.
+  const x0 = [1.2, -0.4];
+  const [Q1, Q2] = P.modalAmplitudes(...x0);
+  const [w1, w2] = P.modes().map((m) => m.omega);
+  const { out } = run(...x0, 300);
+  let err = 0;
+  for (const s of out) {
+    const [q1, q2] = P.modalAmplitudes(s.x1, s.x2);
+    err = Math.max(err, Math.abs(q1 - Q1 * Math.cos(w1 * s.t)), Math.abs(q2 - Q2 * Math.cos(w2 * s.t)));
+  }
+  // Tolerance: Verlet's phase drift, ~2e-4 after ~77 swings of mode 2. Any
+  // exchange of energy between the modes would show as an error of order 1.
+  pass(err < 1e-3, `from (${x0}): q1(t) = ${Q1.toFixed(3)} cos(w1 t), q2(t) = ${Q2.toFixed(3)} cos(w2 t) over 300 units, worst ${err.toExponential(1)}`);
 }
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) FAILED.`);

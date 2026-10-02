@@ -99,7 +99,7 @@ _Avoid_: platform, buoy, spar (these name particular designs)
 ### Two-mass lab
 
 **Two-mass lab**:
-Two equal point masses on two equal springs in a **Spring chain**, upright like the **Pile**, free and undamped. Only the total motion is ever shown, never split into **Modes**. It is the simplest system with two **Modes**, for checking a derivation done on the board.
+Two equal point masses on two equal springs in a **Spring chain**, upright like the **Pile**, free and undamped. Until **Show the answer**, only the total motion is shown. After it, the **Mode plane** splits the motion into **Modes**. It is the simplest system with two **Modes**, for checking a derivation done on the board and then showing that any displacement is a mix of them.
 _Avoid_: 2-DOF applet, two-element beam (that is a different stiffness model)
 
 **Spring chain**:
@@ -113,6 +113,14 @@ _Avoid_: drop, let go, initial condition
 **Show the answer**:
 The toggle that reveals the characteristic equation with the current numbers, ω₁, ω₂, the shape ratios x₂/x₁, and the buttons that start the system in each **Mode**. Off by default, so students try first and get the answer after.
 _Avoid_: solution, results
+
+**Mode plane**:
+The x₁–x₂ plane, with the displacement as a moving point and the two **Modes**' shapes drawn as axes through the origin. Here M = m·I, so the axes are at right angles. Shown only with the answer, since the axes are the answer. A **Release** on a mode axis traces a straight line along it; anywhere else it traces a Lissajous figure.
+_Avoid_: phase plane (that is position against velocity), configuration space (fine in a lecture)
+
+**Modal amplitude**:
+q₁ and q₂, where a start splits as x = q₁ φ₁ + q₂ φ₂: the coordinates of the **Release** point along the two mode axes, in x₀, with each φ scaled so its larger entry is 1. It is fixed at **Release**, and each mode then swings with its own amplitude for ever.
+_Avoid_: participation factor (a different normalisation), modal contribution, percentage
 
 ### Wind lab
 

@@ -1,0 +1,8 @@
+{
+  "name": "Two-mass lab",
+  "description": "Two equal masses stacked on two equal springs. Drag them sideways, let go, and watch both over time: most starts give a restless mix, but two starts keep their shape forever. Find them, then check against det(K − ω²M) = 0.",
+  "status": "live",
+  "entry": "index.html",
+  "tags": ["vibration", "structures", "modes"],
+  "course": "46211"
+}

@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Two-mass lab</title>
+<style>
+  :root {
+    --ground-hi: #eef1f7; --ground-mid: #e5eaf3; --ground-lo: #d9dfeb;
+    --glass: rgba(255,255,255,.78); --glass-edge: rgba(15,23,42,.10);
+    --ink: #0f172a; --soft: #475569; --muted: #8a94a2;
+    --accent: #2563eb; --warm: #ea580c; --sky: rgba(255,255,255,.55);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground-hi: #1a1f29; --ground-mid: #141922; --ground-lo: #0e1219;
+      --glass: rgba(30,36,48,.80); --glass-edge: rgba(226,232,240,.10);
+      --ink: #e2e8f0; --soft: #c3cbd6; --muted: #8b95a5;
+      --accent: #60a5fa; --warm: #fb923c; --sky: rgba(148,163,184,.08);
+    }
+  }
+  html, body { margin: 0; height: 100%; width: 100%; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(120% 85% at 50% -8%, var(--sky), rgba(255,255,255,0) 58%),
+      radial-gradient(140% 120% at 50% 50%, rgba(15,23,42,0) 55%, rgba(15,23,42,.07) 100%),
+      linear-gradient(180deg, var(--ground-hi) 0%, var(--ground-mid) 46%, var(--ground-lo) 100%);
+    background-color: var(--ground-mid);
+    font: 500 13px/1.35 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--ink);
+    -webkit-text-size-adjust: 100%;
+  }
+  canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+
+  .glass {
+    background: var(--glass); border: 1px solid var(--glass-edge);
+    border-radius: 11px; box-shadow: 0 1px 3px rgba(15,23,42,.08);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  #controls { position: fixed; top: 12px; left: 12px; z-index: 2; display: flex; gap: 8px; flex-wrap: wrap; max-width: calc(100vw - 24px); }
+  button {
+    height: 34px; padding: 0 14px; cursor: pointer;
+    font: 600 12px/1 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--soft); letter-spacing: .03em;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:hover, button:focus-visible { color: var(--ink); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: default; color: var(--soft); }
+  /* Release is the press the whole lab turns on: make it the one that stands out. */
+  #release:not(:disabled) { color: #fff; background: var(--accent); border-color: transparent; }
+
+  #answer {
+    position: fixed; top: 56px; left: 12px; z-index: 2; padding: 10px 13px 11px;
+    width: min(330px, calc(100vw - 50px));
+  }
+  #answer h2 { margin: 0 0 6px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--soft); }
+  #answer p { margin: 5px 0; }
+  #answer .eq { font: 500 13px/1.5 "Cambria Math", "STIX Two Math", Georgia, serif; color: var(--ink); }
+  #answer .det { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; }
+  #answer .mat { display: inline-grid; grid-template-columns: auto auto; column-gap: 12px; padding: 0 6px; border-left: 1.5px solid var(--ink); border-right: 1.5px solid var(--ink); text-align: center; }
+  #answer .modes { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; margin-top: 8px; }
+  #answer .modes button { height: 30px; padding: 0 10px; }
+  #answer .num { font-variant-numeric: tabular-nums; }
+
+  #hint {
+    position: fixed; right: 14px; top: 20px; z-index: 1; text-align: right;
+    font: 500 clamp(10px, 1.2vw, 13px)/1.4 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    letter-spacing: .02em; color: var(--muted); pointer-events: none;
+    opacity: 0; transition: opacity .7s ease; user-select: none; max-width: 46vw;
+  }
+  #hint.show { opacity: 1; }
+  #hint b { font-weight: 700; color: var(--soft); }
+  @media (max-width: 640px) { #hint { top: auto; bottom: calc(30vh + 8px); right: 10px; max-width: 60vw; } }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="Two equal masses stacked on two equal springs, upright on the ground. Drag a mass sideways, then press Release."></canvas>
+
+<div id="controls">
+  <button id="release" class="glass" type="button" disabled>Release</button>
+  <button id="show" class="glass" type="button" aria-expanded="false" aria-controls="answer">Show the answer</button>
+</div>
+
+<div id="answer" class="glass" hidden>
+  <h2>The answer</h2>
+  <p class="eq">
+    det(<b>K</b> − ω²<b>M</b>) =
+    <span class="det"><span class="mat">
+      <span>2k − ω²m</span><span>−k</span>
+      <span>−k</span><span>k − ω²m</span>
+    </span></span> = 0
+  </p>
+  <p class="eq">(ω²m)² − 3k(ω²m) + k² = 0 &nbsp;⇒&nbsp; ω² = <span class="num">(3 ∓ √5)/2</span> · k/m</p>
+  <div class="modes">
+    <button id="mode1" class="glass" type="button">Start in mode 1</button>
+    <span class="eq">ω₁ = <span class="num" id="w1"></span> √(k/m), &nbsp;x₂/x₁ = <span class="num" id="r1"></span></span>
+    <button id="mode2" class="glass" type="button">Start in mode 2</button>
+    <span class="eq">ω₂ = <span class="num" id="w2"></span> √(k/m), &nbsp;x₂/x₁ = <span class="num" id="r2"></span></span>
+  </div>
+</div>
+
+<div id="hint"><b>Drag</b> a mass sideways, then the other · press <b>Release</b><br>Find a start that keeps its shape.</div>
+
+<script>
+/* ---------------------------------------------------------------- physics
+ *
+ * Two equal masses on a spring chain: k ties m1 to the ground and acts on x1;
+ * k ties m2 to m1 and acts on x2 - x1. Upright like the Pile lab, so the
+ * masses are stacked and move sideways. Free and undamped.
+ *
+ *     M = [m 0; 0 m]        K = [2k -k; -k k]
+ *
+ * Units are normalised: m = 1, k = 1, so time is t*sqrt(k/m) and lengths are
+ * in x0, the unit marked on the ground. Nothing that moves the masses knows
+ * what a mode is: they are stepped forward from M x'' + K x = 0 alone. The
+ * modes below are only for the answer panel and its two buttons.
+ *
+ * verify.mjs slices this section out by its first line and the "state" banner
+ * below, and checks it against the closed-form answer. Keep both markers.
+ */
+const M_ = [1, 1];                                   // m1, m2 in units of m
+const K_ = [[2, -1], [-1, 1]];                       // in units of k
+const SUBSTEP = 0.002;                               // time step, in units of sqrt(m/k)
+
+/** Accelerations from M x'' = -K x. */
+function accel(x, out) {
+  out[0] = -(K_[0][0] * x[0] + K_[0][1] * x[1]) / M_[0];
+  out[1] = -(K_[1][0] * x[0] + K_[1][1] * x[1]) / M_[1];
+  return out;
+}
+
+/**
+ * The characteristic equation det(K - lambda M) = 0 as a quadratic in
+ * lambda = omega^2 m / k: a lambda^2 + b lambda + c.
+ */
+function characteristic() {
+  const a = M_[0] * M_[1];
+  const b = -(K_[0][0] * M_[1] + K_[1][1] * M_[0]);
+  const c = K_[0][0] * K_[1][1] - K_[0][1] * K_[1][0];
+  return { a, b, c };
+}
+
+/** Both modes: omega in units of sqrt(k/m), and the shape ratio x2/x1. */
+function modes() {
+  const { a, b, c } = characteristic();
+  const root = Math.sqrt(b * b - 4 * a * c);
+  return [(-b - root) / (2 * a), (-b + root) / (2 * a)].map((lambda) => ({
+    omega: Math.sqrt(lambda),
+    // Second row of (K - lambda M) x = 0: K21 x1 + (K22 - lambda m2) x2 = 0.
+    ratio: -K_[1][0] / (K_[1][1] - lambda * M_[1]),
+  }));
+}
+
+/** A mode's shape with the larger of the two displacements equal to `size`. */
+function modeStart(r, size) {
+  const { ratio } = modes()[r];
+  return Math.abs(ratio) >= 1 ? [size / ratio, size] : [size, size * ratio];
+}
+
+/**
+ * The masses in motion: velocity Verlet, which is symplectic, so over any
+ * number of swings the energy neither creeps up nor bleeds away. An undamped
+ * system has to come back to the same amplitude forever; an integrator that
+ * slowly damped it would teach the opposite.
+ */
+function createSim() {
+  const x = new Float64Array(2), v = new Float64Array(2), a = new Float64Array(2);
+  let held = true;
+  return {
+    get x() { return x; },
+    get held() { return held; },
+    /** Advance by dt (model time). Nothing moves while held. */
+    advance(dt) {
+      if (held) return;
+      let left = dt;
+      while (left > 1e-12) {
+        const h = Math.min(SUBSTEP, left);
+        accel(x, a);
+        for (let i = 0; i < 2; i++) { v[i] += 0.5 * h * a[i]; x[i] += h * v[i]; }
+        accel(x, a);
+        for (let i = 0; i < 2; i++) v[i] += 0.5 * h * a[i];
+        left -= h;
+      }
+    },
+    /** Take hold of one mass: everything stops, the other stays where it is. */
+    set(i, value) { held = true; v.fill(0); x[i] = value; },
+    place(x1, x2) { held = true; v.fill(0); x[0] = x1; x[1] = x2; },
+    release() { held = false; },
+    energy() {
+      const kin = 0.5 * (M_[0] * v[0] * v[0] + M_[1] * v[1] * v[1]);
+      const pot = 0.5 * (x[0] * (K_[0][0] * x[0] + K_[0][1] * x[1]) + x[1] * (K_[1][0] * x[0] + K_[1][1] * x[1]));
+      return kin + pot;
+    },
+  };
+}
+
+/* --------------------------------------------------------------- state */
+
+const sim = createSim();
+const MODES = modes();
+/**
+ * Model time per second on screen: mode 1 swings about once every two
+ * seconds. Fixed, never rescaled, so mode 2 is visibly quicker.
+ */
+const TIME_SCALE = (2 * Math.PI / MODES[0].omega) / 2;
+const REACH = 1.6;                                   // how far a mass can be dragged, in x0
+const TRACE_UNITS = 10;                              // the trace's window, in t*sqrt(k/m)
+const TRACE_HZ = 120;                                // samples per second on screen
+const TRACE_N = Math.ceil(TRACE_HZ * TRACE_UNITS / TIME_SCALE) + 2;
+const traceT = new Float64Array(TRACE_N), trace1 = new Float32Array(TRACE_N), trace2 = new Float32Array(TRACE_N);
+let traceHead = 0, traceCount = 0;
+let modelTime = 0;
+const releases = [];                                 // model times at which Release was pressed
+let plotRange = 1.5;                                 // half-height of the trace, in x0
+
+function record() {
+  traceT[traceHead] = modelTime;
+  trace1[traceHead] = sim.x[0];
+  trace2[traceHead] = sim.x[1];
+  traceHead = (traceHead + 1) % TRACE_N;
+  traceCount = Math.min(TRACE_N, traceCount + 1);
+}
+
+/* ------------------------------------------------------------ rendering */
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, lay = null;
+
+function readPalette() {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  return dark ? {
+    column: '#cbd5e1', columnLo: '#94a3b8', shadow: 'rgba(0,0,0,0.35)', seam: 'rgba(255,255,255,0.18)',
+    one: '96,165,250', two: '251,146,60', ink: '#e2e8f0', muted: 'rgba(148,163,184,0.85)',
+    rule: 'rgba(148,163,184,0.30)', soil: '71,85,105', bodyHi: '#e2e8f0', bodyLo: '#64748b',
+  } : {
+    column: '#1f2937', columnLo: '#4b5563', shadow: 'rgba(15,23,42,0.16)', seam: 'rgba(255,255,255,0.30)',
+    one: '37,99,235', two: '234,88,12', ink: '#0f172a', muted: 'rgba(71,85,105,0.9)',
+    rule: 'rgba(100,116,139,0.32)', soil: '100,116,139', bodyHi: '#64748b', bodyLo: '#1e293b',
+  };
+}
+let pal = readPalette();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { pal = readPalette(); });
+const rgba = (c, a) => `rgba(${c},${a.toFixed(3)})`;
+const FONT = (w, s) => `${w} ${s}px system-ui,-apple-system,"Segoe UI",Arial,sans-serif`;
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = cv.clientWidth; H = cv.clientHeight;
+  const bw = Math.round(W * DPR), bh = Math.round(H * DPR);
+  if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+  layout();
+}
+
+/** Where everything sits, from the window size alone. */
+function layout() {
+  const band = Math.max(110, Math.min(260, H * 0.3));
+  const baseY = H - band - Math.max(34, (H - band) * 0.1);
+  const fit = (top) => {
+    const storey = Math.max(30, Math.min((baseY - top) / 2.25, W * 0.3));
+    // One x0 sideways: big enough to drag, small enough that REACH fits.
+    const unit = Math.max(24, Math.min(W * 0.45 / (REACH + 0.4), storey * 0.75));
+    return { band, baseY, storey, unit, cx: W * 0.5, colW: Math.max(4, Math.min(10, storey * 0.045)) };
+  };
+  lay = fit(70);
+  // Open, the answer must not sit over the masses. On a wide screen it fits
+  // beside them; on a phone it spans the width, so the picture goes below it.
+  const panel = document.getElementById('answer');
+  if (!panel.hidden) {
+    const r = panel.getBoundingClientRect();
+    // How far left a mass can be dragged, the nacelle's hub included. The
+    // ground's shadow is wider, but it is nowhere near the panel's height.
+    const pictureLeft = lay.cx - lay.unit * REACH - Math.max(30, lay.storey * 0.36) * 0.5;
+    if (r.right > pictureLeft) lay = fit(r.bottom + 24);
+  }
+}
+
+const sx = (disp) => lay.cx + disp * lay.unit;
+const sy = (level) => lay.baseY - level * lay.storey;  // level 0 ground, 1 m1, 2 m2
+
+/**
+ * A column between two levels, drawn as a shear-frame column: no slope at
+ * either end, so it bends into an S as the masses move apart.
+ */
+function strokeColumn(xa, xb, la, lb, width, style) {
+  ctx.lineWidth = width; ctx.strokeStyle = style;
+  ctx.beginPath();
+  for (let i = 0; i <= 24; i++) {
+    const s = i / 24, f = 3 * s * s - 2 * s * s * s;
+    const x = sx(xa + (xb - xa) * f), y = sy(la + (lb - la) * s);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+function drawColumn(xa, xb, la, lb, label) {
+  const w = lay.colW;
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  strokeColumn(xa, xb, la, lb, w * 1.9, pal.shadow);
+  strokeColumn(xa, xb, la, lb, w, pal.column);
+  strokeColumn(xa, xb, la, lb, Math.max(0.6, w * 0.22), pal.seam);
+  // The spring's name, beside its middle, on the side away from the bend.
+  const mid = (xa + xb) / 2, y = sy((la + lb) / 2);
+  ctx.font = FONT('italic 500', 13); ctx.fillStyle = pal.muted; ctx.textBaseline = 'middle';
+  const left = xb - xa > 0;
+  ctx.textAlign = left ? 'right' : 'left';
+  ctx.fillText(label, sx(mid) + (left ? -1 : 1) * (w + 10), y);
+}
+
+function drawGround() {
+  const { baseY, cx, unit } = lay;
+  const half = unit * (REACH + 0.5);
+  const g = ctx.createLinearGradient(0, baseY, 0, baseY + 22);
+  g.addColorStop(0, rgba(pal.soil, 0.22)); g.addColorStop(1, rgba(pal.soil, 0));
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(cx, baseY, half, 22, 0, 0, Math.PI); ctx.fill();
+  // The ground doubles as the picture's axis: x in units of x0.
+  ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(sx(-REACH - 0.2), baseY + 0.5); ctx.lineTo(sx(REACH + 0.2), baseY + 0.5); ctx.stroke();
+  ctx.font = FONT(500, 10); ctx.fillStyle = pal.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let q = -1; q <= 1; q++) {
+    const x = Math.round(sx(q)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, baseY - 3); ctx.lineTo(x, baseY + 4); ctx.stroke();
+    ctx.fillText(q === 0 ? '0' : (q < 0 ? '−' : '') + 'x₀', x, baseY + 7);
+  }
+  ctx.textAlign = 'left';
+  ctx.fillText('x', sx(REACH + 0.25), baseY - 5);
+}
+
+/** m1: a plain block. Drawn with its colour, which is its trace's colour. */
+function drawBlock(x, level, colour, label) {
+  const px = sx(x), py = sy(level), s = Math.max(16, lay.storey * 0.2);
+  ctx.fillStyle = pal.shadow;
+  ctx.beginPath(); ctx.ellipse(px, py + s * 0.62, s * 0.7, s * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+  const g = ctx.createLinearGradient(0, py - s / 2, 0, py + s / 2);
+  g.addColorStop(0, pal.bodyHi); g.addColorStop(1, pal.bodyLo);
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px - s * 0.6, py - s / 2, s * 1.2, s, s * 0.18) : ctx.rect(px - s * 0.6, py - s / 2, s * 1.2, s); ctx.fill();
+  ctx.lineWidth = 2.5; ctx.strokeStyle = rgba(colour, 0.95); ctx.stroke();
+  massLabel(px + s * 0.75, py, colour, label);
+}
+
+/** m2: the nacelle, as in the Pile lab, with its hub facing left. */
+function drawNacelle(x, level, colour, label) {
+  const px = sx(x), py = sy(level), w = Math.max(30, lay.storey * 0.36), h = w * 0.42;
+  ctx.save();
+  ctx.translate(px, py - h * 0.5);
+  ctx.fillStyle = pal.shadow;
+  ctx.beginPath(); ctx.ellipse(0, h * 0.62, w * 0.62, h * 0.32, 0, 0, Math.PI * 2); ctx.fill();
+  const g = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+  g.addColorStop(0, pal.bodyHi); g.addColorStop(1, pal.bodyLo);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(-w / 2, -h / 2, w, h, h * 0.42); else ctx.rect(-w / 2, -h / 2, w, h);
+  ctx.fill();
+  ctx.lineWidth = 2.5; ctx.strokeStyle = rgba(colour, 0.95); ctx.stroke();
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(-w / 2, 0, h * 0.34, h * 0.42, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = pal.seam;
+  ctx.beginPath(); ctx.ellipse(-w * 0.1, -h * 0.26, w * 0.3, h * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  massLabel(px + w * 0.62, py - h * 0.5, colour, label);
+}
+
+function massLabel(x, y, colour, text) {
+  ctx.font = FONT(600, 13); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = rgba(colour, 1);
+  ctx.fillText(text, x, y);
+}
+
+/** A faint line at each mass's rest position, so "displaced" reads at a glance. */
+function drawRest() {
+  ctx.setLineDash([3, 5]); ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(sx(0) + 0.5, sy(0)); ctx.lineTo(sx(0) + 0.5, sy(2.25)); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+/** The time trace: x1 and x2 together, axes and a legend. */
+function drawTrace() {
+  const top = H - lay.band, h = lay.band, left = 46, right = W - 14;
+  const plotTop = top + 26, plotBottom = H - 24, pw = right - left;
+  if (pw < 60 || plotBottom - plotTop < 30) return;
+  const mid = (plotTop + plotBottom) / 2, half = (plotBottom - plotTop) / 2;
+
+  // Range: a few fixed steps, so the axis labels stay round numbers.
+  let peak = 0;
+  for (let i = 0; i < traceCount; i++) peak = Math.max(peak, Math.abs(trace1[i]), Math.abs(trace2[i]));
+  const want = [1.5, 2, 3].find((r) => peak <= r * 0.95) ?? 3;
+  if (want > plotRange || peak < plotRange * 0.45) plotRange = want;
+
+  const tNow = modelTime, t0 = tNow - TRACE_UNITS;
+  const xOf = (t) => left + (t - t0) / TRACE_UNITS * pw;
+  const yOf = (v) => mid - Math.max(-1.08, Math.min(1.08, v / plotRange)) * half;
+
+  // Axes and grid.
+  ctx.font = FONT(500, 10); ctx.fillStyle = pal.muted;
+  ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  const step = plotRange <= 1.5 ? 0.5 : 1;
+  for (let v = -Math.floor(plotRange / step) * step; v <= plotRange + 1e-9; v += step) {
+    const y = Math.round(yOf(v)) + 0.5;
+    ctx.globalAlpha = v === 0 ? 1 : 0.45;
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillText(v === 0 ? '0' : (v < 0 ? '−' : '') + Math.abs(v), left - 6, y);
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let t = Math.ceil(t0 / 2) * 2; t <= tNow; t += 2) {
+    if (t < 0) continue;
+    const x = Math.round(xOf(t)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, plotBottom); ctx.lineTo(x, plotBottom + 4); ctx.stroke();
+    // Clear of the axis title in the right-hand corner.
+    if (x > left + 8 && x < right - 64) ctx.fillText(String(t), x, plotBottom + 6);
+  }
+  ctx.save();
+  ctx.translate(13, mid); ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('x / x₀', 0, 0);
+  ctx.restore();
+  ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+  ctx.fillText('t·√(k/m)', right, plotBottom + 6);
+
+  // Each press of Release, so the moment the masses let go is visible.
+  ctx.setLineDash([2, 4]);
+  for (const t of releases) {
+    if (t < t0 || t > tNow) continue;
+    const x = Math.round(xOf(t)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, plotTop); ctx.lineTo(x, plotBottom); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(left, plotTop - 4, pw, plotBottom - plotTop + 8); ctx.clip();
+  for (const [buf, colour] of [[trace1, pal.one], [trace2, pal.two]]) {
+    ctx.beginPath();
+    let started = false;
+    for (let k = 0; k < traceCount; k++) {
+      const i = (traceHead - traceCount + k + TRACE_N) % TRACE_N;
+      if (traceT[i] < t0 - 0.2) continue;
+      const x = xOf(traceT[i]), y = yOf(buf[i]);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    }
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.strokeStyle = rgba(colour, 0.18); ctx.lineWidth = 6; ctx.stroke();
+    ctx.strokeStyle = rgba(colour, 0.95); ctx.lineWidth = 2.2; ctx.stroke();
+  }
+  ctx.restore();
+
+  // Title and legend.
+  ctx.textBaseline = 'middle';
+  ctx.font = FONT(600, 10); ctx.fillStyle = pal.muted; ctx.textAlign = 'left';
+  ctx.fillText('DISPLACEMENT OVER TIME', left, top + 12);
+  let lx = right;
+  ctx.font = FONT(600, 12); ctx.textAlign = 'right';
+  for (const [label, colour] of [['x₂ top', pal.two], ['x₁ lower', pal.one]]) {
+    ctx.fillStyle = rgba(colour, 1);
+    ctx.fillText(label, lx, top + 12);
+    const w = ctx.measureText(label).width;
+    ctx.strokeStyle = rgba(colour, 1); ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(lx - w - 24, top + 12); ctx.lineTo(lx - w - 6, top + 12); ctx.stroke();
+    lx -= w + 36;
+  }
+}
+
+function render() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  drawTrace();
+  drawGround();
+  drawRest();
+  const [x1, x2] = sim.x;
+  drawColumn(0, x1, 0, 1, 'k');
+  drawColumn(x1, x2, 1, 2, 'k');
+  drawBlock(x1, 1, pal.one, 'm · x₁');
+  drawNacelle(x2, 2, pal.two, 'm · x₂');
+  if (drag) {
+    const p = sx(sim.x[drag.i]), y = sy(drag.i + 1);
+    ctx.fillStyle = rgba(drag.i ? pal.two : pal.one, 0.16);
+    ctx.beginPath(); ctx.arc(p, y, 26, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+/* ------------------------------------------------------------ the hand */
+
+const hint = document.getElementById('hint');
+let hintTimer = setTimeout(() => hint.classList.add('show'), 700);
+function dismissHint() { clearTimeout(hintTimer); hint.classList.remove('show'); }
+
+const releaseBtn = document.getElementById('release');
+function syncRelease() { releaseBtn.disabled = !sim.held; }
+
+let drag = null;
+function local(e) { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+
+/** Which mass is under the pointer, if any: generous, since fingers are wide. */
+function massAt(p) {
+  const reach = Math.max(30, lay.storey * 0.32);
+  let best = null, bestD = Infinity;
+  for (let i = 0; i < 2; i++) {
+    const d = Math.hypot(p.x - sx(sim.x[i]), p.y - sy(i + 1));
+    if (d < reach && d < bestD) { best = i; bestD = d; }
+  }
+  return best;
+}
+
+cv.addEventListener('pointerdown', (e) => {
+  if (drag || !e.isPrimary) return;
+  const p = local(e);
+  const i = massAt(p);
+  if (i === null) return;
+  drag = { i, id: e.pointerId, dx: sx(sim.x[i]) - p.x };
+  sim.set(i, sim.x[i]);                              // stops everything, moves nothing yet
+  syncRelease();
+  cv.setPointerCapture(e.pointerId);
+  cv.style.cursor = 'grabbing';
+  dismissHint();
+  e.preventDefault();
+});
+
+cv.addEventListener('pointermove', (e) => {
+  const p = local(e);
+  if (!drag) { cv.style.cursor = massAt(p) !== null ? 'grab' : 'default'; return; }
+  if (e.pointerId !== drag.id) return;
+  const x = (p.x + drag.dx - lay.cx) / lay.unit;
+  sim.set(drag.i, Math.max(-REACH, Math.min(REACH, x)));
+});
+
+function endDrag(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  drag = null;
+  cv.style.cursor = 'default';
+}
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', endDrag);
+cv.addEventListener('lostpointercapture', endDrag);
+
+/* ------------------------------------------------------------- controls */
+
+function release() {
+  if (!sim.held) return;
+  sim.release();
+  releases.push(modelTime);
+  while (releases.length > 8) releases.shift();
+  syncRelease();
+  dismissHint();
+}
+releaseBtn.addEventListener('click', release);
+
+const answer = document.getElementById('answer');
+const showBtn = document.getElementById('show');
+showBtn.addEventListener('click', () => {
+  answer.hidden = !answer.hidden;
+  showBtn.textContent = answer.hidden ? 'Show the answer' : 'Hide the answer';
+  showBtn.setAttribute('aria-expanded', String(!answer.hidden));
+  layout();
+});
+const fmt = (v) => (v < 0 ? '−' : '') + Math.abs(v).toFixed(3);
+document.getElementById('w1').textContent = fmt(MODES[0].omega);
+document.getElementById('w2').textContent = fmt(MODES[1].omega);
+document.getElementById('r1').textContent = fmt(MODES[0].ratio);
+document.getElementById('r2').textContent = fmt(MODES[1].ratio);
+for (const r of [0, 1]) {
+  document.getElementById('mode' + (r + 1)).addEventListener('click', () => {
+    const [a, b] = modeStart(r, 1);
+    sim.place(a, b);
+    release();
+  });
+}
+
+/* ----------------------------------------------------------------- loop */
+
+let last = performance.now(), sinceSample = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  // The clock runs while held too, so the trace keeps flowing and shows
+  // the masses standing where they were set until Release.
+  const steps = Math.max(1, Math.round(dt * TRACE_HZ));
+  const h = dt * TIME_SCALE / steps;
+  for (let s = 0; s < steps; s++) {
+    sim.advance(h);
+    modelTime += h;
+    record();
+  }
+  render();
+  requestAnimationFrame(frame);
+}
+
+new ResizeObserver(resize).observe(cv);
+resize();
+// Open already moving, in a mix: the page shows what it is for, and gives
+// nothing away about which start keeps its shape.
+sim.place(1, 0);
+release();
+releases.length = 0;
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

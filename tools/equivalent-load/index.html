@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Equivalent-load lab</title>
+<style>
+  :root {
+    --ground-hi: #eef1f7; --ground-mid: #e5eaf3; --ground-lo: #d9dfeb;
+    --glass: rgba(255,255,255,.78); --glass-edge: rgba(15,23,42,.10);
+    --ink: #0f172a; --soft: #475569; --muted: #8a94a2;
+    --accent: #2563eb; --warm: #ea580c; --good: #15803d; --sky: rgba(255,255,255,.55);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground-hi: #1a1f29; --ground-mid: #141922; --ground-lo: #0e1219;
+      --glass: rgba(30,36,48,.80); --glass-edge: rgba(226,232,240,.10);
+      --ink: #e2e8f0; --soft: #c3cbd6; --muted: #8b95a5;
+      --accent: #60a5fa; --warm: #fb923c; --good: #4ade80; --sky: rgba(148,163,184,.08);
+    }
+  }
+  html, body { margin: 0; height: 100%; width: 100%; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(120% 85% at 50% -8%, var(--sky), rgba(255,255,255,0) 58%),
+      radial-gradient(140% 120% at 50% 50%, rgba(15,23,42,0) 55%, rgba(15,23,42,.07) 100%),
+      linear-gradient(180deg, var(--ground-hi) 0%, var(--ground-mid) 46%, var(--ground-lo) 100%);
+    background-color: var(--ground-mid);
+    font: 500 13px/1.35 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--ink);
+    -webkit-text-size-adjust: 100%;
+  }
+  canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+
+  .glass {
+    background: var(--glass); border: 1px solid var(--glass-edge);
+    border-radius: 11px; box-shadow: 0 1px 3px rgba(15,23,42,.08);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  #controls {
+    position: fixed; top: 12px; left: 12px; z-index: 2; padding: 8px 12px 10px;
+    box-sizing: border-box; width: 350px; max-width: calc(100vw - 24px);
+  }
+  h2 { margin: 6px 0 3px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  h2:first-child { margin-top: 0; }
+  /* Uppercase would turn σ into Σ, a different symbol. */
+  h2 .keep { text-transform: none; }
+  .row { display: grid; grid-template-columns: 80px 1fr 82px; align-items: center; gap: 8px; margin: 1px 0; }
+  .row label { font-size: 12px; font-weight: 600; color: var(--soft); }
+  .row output { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  input[type=range] { width: 100%; margin: 0; accent-color: var(--accent); }
+  .buttons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
+  button {
+    height: 30px; padding: 0 11px; cursor: pointer;
+    font: 600 12px/1 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--soft); letter-spacing: .03em;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:hover, button:focus-visible { color: var(--ink); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: default; color: var(--soft); }
+  .primary:not(:disabled) { color: #fff; background: var(--accent); border-color: transparent; }
+  .nudge { padding: 0 9px; min-width: 34px; }
+  .line { margin-top: 5px; font-size: 12px; color: var(--soft); }
+  .line b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .low { color: var(--accent) !important; }
+  .high { color: var(--warm) !important; }
+  .found { color: var(--good) !important; }
+  #answer { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--glass-edge); font-size: 12px; }
+  #answer p { margin: 3px 0; }
+  #answer .eq { font: 500 13px/1.5 "Cambria Math", "STIX Two Math", Georgia, serif; }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="A random stress record, repeated over a lifetime, does a target fatigue damage. Students try constant stress amplitudes until ten million cycles at one of them do the same damage."></canvas>
+
+<div id="controls" class="glass">
+  <h2>The lifetime</h2>
+  <div class="row"><label for="sd">stress level</label><input id="sd" type="range" min="5" max="40" step="5" value="20"><output id="sd-out"></output></div>
+  <div class="buttons"><button id="newsig" class="glass" type="button">New signal</button></div>
+  <div class="line" id="life"></div>
+  <h2>Your try: 10⁷ cycles at <span class="keep">σ</span></h2>
+  <div class="row"><label for="g">σ</label><input id="g" type="range" min="1" max="120" step="0.1" value="10"><output id="g-out"></output></div>
+  <div class="buttons">
+    <button id="minus" class="glass nudge" type="button" aria-label="0.1 MPa less">−</button>
+    <button id="plus" class="glass nudge" type="button" aria-label="0.1 MPa more">+</button>
+    <button id="try" class="glass primary" type="button">Try</button>
+    <button id="show" class="glass" type="button" aria-expanded="false" aria-controls="answer">Show the answer</button>
+  </div>
+  <div class="line" id="verdict" aria-live="polite"></div>
+  <div id="answer" hidden>
+    <p class="eq">σ_eq = ( Σ nᵢ σᵢ³ / N_eq )<sup>1/3</sup></p>
+    <p class="eq" id="a-num"></p>
+  </div>
+</div>
+
+<script>
+/* ---------------------------------------------------------------- physics
+ *
+ * The S-N curve of the other two labs: one slope, m = 3, for the stress
+ * amplitude sa in MPa, with the lives of DNV-RP-C203's D-curve in air
+ * (written there for the range 2 sa, so log a = 12.164 - 3 log 2).
+ *
+ *     N(sa) = a / sa^m,      D = sum n_i / N_i = sum n_i sa_i^m / a
+ *
+ * So N_eq cycles at one amplitude sigma_eq do the same damage as the whole
+ * lifetime exactly when sigma_eq^m N_eq = sum n_i sa_i^m:
+ *
+ *     sigma_eq = (sum n_i sa_i^m / N_eq)^(1/m)
+ *
+ * The record is a JONSWAP sea, counted by the Rainflow lab's four-point rule.
+ *
+ * verify.mjs slices this section and the state after it out, from this first
+ * line to the "rendering" banner. Keep both markers, and keep the state free
+ * of the DOM.
+ */
+const SN = { m: 3, logA: 12.164 - 3 * Math.log10(2) };
+const N_EQ = 1e7;
+const TOLERANCE = 0.02;                              // a Try within 2 % of the damage is found
+
+function cyclesToFailure(sa) {
+  return 10 ** (SN.logA - SN.m * Math.log10(sa));
+}
+
+/** The peaks and valleys of a sampled signal, both ends included. */
+function turningPoints(t, s) {
+  const out = [{ t: t[0], s: s[0] }];
+  let dir = 0;
+  for (let i = 1; i < s.length; i++) {
+    const d = Math.sign(s[i] - s[i - 1]);
+    if (d === 0) continue;
+    if (dir !== 0 && d !== dir) out.push({ t: t[i - 1], s: s[i - 1] });
+    dir = d;
+  }
+  out.push({ t: t[t.length - 1], s: s[s.length - 1] });
+  return out;
+}
+
+/** Rainflow by the four-point rule: full cycles, then the residue as halves. */
+function rainflow(points) {
+  const events = [], stack = [];
+  const swing = (i, j) => Math.abs(points[i].s - points[j].s);
+  for (let i = 0; i < points.length; i++) {
+    stack.push(i);
+    while (stack.length >= 4) {
+      const [a, b, c, d] = stack.slice(-4);
+      const x = swing(b, c);
+      if (x <= swing(a, b) && x <= swing(c, d)) {
+        events.push({ amp: x / 2, count: 1 });
+        stack.splice(stack.length - 3, 2);
+      } else break;
+    }
+  }
+  for (let i = 0; i + 1 < stack.length; i++) {
+    const amp = swing(stack[i], stack[i + 1]) / 2;
+    if (amp > 0) events.push({ amp, count: 0.5 });
+  }
+  return events;
+}
+
+function mulberry32(seed) {
+  return () => {
+    seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+    let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const SEA = { Tp: 10, gamma: 3.3, seconds: 600 };
+
+/** Ten minutes of a JONSWAP sea at Tp = 10 s, standard deviation sd MPa. */
+function seaRecord(sd, seed) {
+  const rnd = mulberry32(seed), fp = 1 / SEA.Tp, nc = 90, f0 = 0.5 * fp, f1 = 3.5 * fp, df = (f1 - f0) / nc;
+  const comps = [];
+  let variance = 0;
+  for (let i = 0; i < nc; i++) {
+    const f = f0 + (i + 0.5) * df;
+    const sig = f <= fp ? 0.07 : 0.09;
+    const S = f ** -5 * Math.exp(-1.25 * (fp / f) ** 4) * SEA.gamma ** Math.exp(-((f - fp) ** 2) / (2 * sig * sig * fp * fp));
+    const a = Math.sqrt(2 * S * df);
+    comps.push({ w: 2 * Math.PI * f, a, ph: 2 * Math.PI * rnd() });
+    variance += a * a / 2;
+  }
+  const k = sd / Math.sqrt(variance), dt = 0.1, n = Math.round(SEA.seconds / dt);
+  const t = new Float64Array(n + 1), s = new Float64Array(n + 1);
+  for (let i = 0; i <= n; i++) {
+    t[i] = i * dt;
+    let v = 0;
+    for (const c of comps) v += c.a * Math.cos(c.w * t[i] + c.ph);
+    s[i] = v * k;
+  }
+  return { t, s };
+}
+
+/** Histogram bins of the stress amplitude, for drawing only: 5 MPa wide. */
+const BIN = 5;
+const binOf = (amp) => Math.floor(amp / BIN);
+const binCentre = (i) => (i + 0.5) * BIN;
+
+/** Two significant figures: 123 456 -> 120 000. */
+const twoSig = (x) => Number(x.toPrecision(2));
+
+/* --------------------------------------------------------------- state */
+
+const lab = {
+  sd: 20, seed: 11,
+  rec: null, events: [],
+  /** Repetitions of the record in the lifetime, and the damage they do. */
+  k: 1, D: 0, sigmaEq: 0,
+  /** Every Try so far: { sigma, D, verdict }. */
+  tries: [], found: null,
+};
+
+/** Sum of n sa^m over one record. */
+function recordMoment(events) {
+  return events.reduce((S, e) => S + e.count * e.amp ** SN.m, 0);
+}
+
+/** Damage of n cycles at one amplitude. */
+const damageAt = (sigma, n = N_EQ) => n / cyclesToFailure(sigma);
+
+/**
+ * Draw a new lifetime: the record, its count, and a k (two significant
+ * figures) that puts the target damage at a random place in 0.3 to 0.9.
+ */
+function buildLifetime() {
+  lab.rec = seaRecord(lab.sd, lab.seed);
+  lab.events = rainflow(turningPoints(lab.rec.t, lab.rec.s));
+  const Dr = lab.events.reduce((D, e) => D + e.count / cyclesToFailure(e.amp), 0);
+  const want = 0.35 + 0.5 * mulberry32(lab.seed * 7 + lab.sd)();
+  lab.k = Math.max(1, twoSig(want / Dr));
+  lab.D = lab.k * Dr;
+  lab.sigmaEq = (lab.k * recordMoment(lab.events) / N_EQ) ** (1 / SN.m);
+  lab.tries = [];
+  lab.found = null;
+}
+
+/** How a damage compares with the target: 'low', 'high' or 'found'. */
+function judge(D) {
+  if (Math.abs(D / lab.D - 1) <= TOLERANCE) return 'found';
+  return D < lab.D ? 'low' : 'high';
+}
+
+function tryAt(sigma) {
+  const D = damageAt(sigma), verdict = judge(D);
+  const t = { sigma, D, verdict };
+  lab.tries.push(t);
+  if (verdict === 'found' && !lab.found) lab.found = { sigma, tries: lab.tries.length };
+  return t;
+}
+
+/**
+ * Cycles in the lifetime, and the mean, rms and largest of their amplitudes.
+ * `own` is the equivalent amplitude for the lifetime's own number of cycles
+ * rather than 10^7: the cube mean, for m = 3. It always sits above the rms,
+ * which is the point; sigma_eq at 10^7 moves with how many cycles there are.
+ */
+function lifetimeStats() {
+  let n = 0, s1 = 0, s2 = 0, sm = 0, big = 0;
+  for (const e of lab.events) {
+    n += e.count; s1 += e.count * e.amp; s2 += e.count * e.amp * e.amp; sm += e.count * e.amp ** SN.m;
+    big = Math.max(big, e.amp);
+  }
+  return { n: n * lab.k, mean: s1 / n, rms: Math.sqrt(s2 / n), own: (sm / n) ** (1 / SN.m), big };
+}
+
+/* ------------------------------------------------------------ rendering */
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, lay = null;
+
+function readPalette() {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  return dark ? {
+    ink: '#e2e8f0', soft: '#c3cbd6', muted: 'rgba(148,163,184,0.85)', rule: 'rgba(148,163,184,0.30)',
+    panel: 'rgba(30,36,48,0.72)', empty: 'rgba(148,163,184,0.16)', signal: '#c3cbd6',
+    life: '#3987e5', low: '#3987e5', high: '#d95926', found: '#4ade80', band: '74,222,128', guess: '#c3cbd6',
+  } : {
+    ink: '#0f172a', soft: '#475569', muted: 'rgba(71,85,105,0.9)', rule: 'rgba(100,116,139,0.32)',
+    panel: 'rgba(255,255,255,0.72)', empty: 'rgba(100,116,139,0.14)', signal: '#334155',
+    life: '#2a78d6', low: '#2a78d6', high: '#eb6834', found: '#15803d', band: '21,128,61', guess: '#475569',
+  };
+}
+let pal = readPalette();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { pal = readPalette(); });
+const rgba = (c, a) => `rgba(${c},${a.toFixed(3)})`;
+const FONT = (w, s) => `${w} ${s}px system-ui,-apple-system,"Segoe UI",Arial,sans-serif`;
+const SUP = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
+const pow10 = (k) => '10' + String(k).split('').map((c) => SUP[c]).join('');
+function sci(x, digits = 3) {
+  if (!(x > 0)) return '0';
+  let k = Math.floor(Math.log10(x));
+  let m = Number((x / 10 ** k).toPrecision(digits));
+  if (m >= 10) { m /= 10; k += 1; }
+  if (k >= -2 && k <= 3) return String(Number(x.toPrecision(digits)));
+  return m === 1 ? pow10(k) : `${m}·${pow10(k)}`;
+}
+const whole = (x) => Math.round(x).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+
+const controls = document.getElementById('controls');
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = cv.clientWidth; H = cv.clientHeight;
+  const bw = Math.round(W * DPR), bh = Math.round(H * DPR);
+  if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+  layout();
+}
+
+/** Wide: controls and record on top, S-N plot and the two damage bars below. Narrow: stacked. */
+function layout() {
+  const c = controls.getBoundingClientRect();
+  const wide = W >= 820 && W / H > 1.1;
+  let rec, row;
+  if (wide) {
+    const topH = Math.max(c.height, H * 0.4);
+    rec = { x: c.right + 10, y: 12, w: W - c.right - 22, h: topH };
+    row = { x: 12, y: 12 + topH + 10, w: W - 24, h: H - topH - 34 };
+  } else {
+    const top = c.bottom + 8, rest = H - top - 10;
+    const rh = Math.round(Math.max(120, rest * 0.4));
+    rec = { x: 8, y: top, w: W - 16, h: rh };
+    row = { x: 8, y: top + rh + 8, w: W - 16, h: rest - rh - 8 };
+  }
+  const barsW = 124;
+  lay = { wide, rec, sn: { x: row.x, y: row.y, w: row.w - barsW - 8, h: row.h }, bars: { x: row.x + row.w - barsW, y: row.y, w: barsW, h: row.h } };
+}
+
+function panel(P) {
+  ctx.fillStyle = pal.panel;
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(P.x, P.y, P.w, P.h, 11) : ctx.rect(P.x, P.y, P.w, P.h); ctx.fill();
+}
+function title(text, short, x, y, room) {
+  ctx.font = FONT(600, 10); ctx.fillStyle = pal.muted; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(ctx.measureText(text).width <= room ? text : short, x, y);
+}
+
+/** Draw a +-sigma band across a plot: dashed for the slider, solid for the answer. */
+function band(inner, yOf, sigma, colour, solid, label) {
+  ctx.save();
+  if (solid) { ctx.fillStyle = rgba(pal.band, 0.10); ctx.fillRect(inner.l, yOf(sigma), inner.r - inner.l, yOf(-sigma) - yOf(sigma)); }
+  ctx.strokeStyle = colour; ctx.lineWidth = solid ? 2 : 1.4; ctx.setLineDash(solid ? [] : [6, 5]);
+  for (const v of [sigma, -sigma]) {
+    const y = Math.round(yOf(v)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(inner.l, y); ctx.lineTo(inner.r, y); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.font = FONT(700, 11); ctx.fillStyle = colour; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+  ctx.fillText(label, inner.r - 4, yOf(sigma) - 3);
+  ctx.restore();
+}
+
+function drawRecord() {
+  const P = lay.rec;
+  panel(P);
+  const inner = { l: P.x + 48, r: P.x + P.w - 14, t: P.y + 30, b: P.y + P.h - 32 };
+  if (inner.r - inner.l < 80 || inner.b - inner.t < 50) return;
+  let peak = 0;
+  for (const v of lab.rec.s) peak = Math.max(peak, Math.abs(v));
+  peak = Math.max(peak, guess(), lab.found ? lab.found.sigma : 0);
+  const R = [20, 40, 60, 80, 100, 160, 200, 240].find((r) => peak <= r * 0.96) ?? 240;
+  const mid = (inner.t + inner.b) / 2, half = (inner.b - inner.t) / 2;
+  const yOf = (v) => mid - Math.max(-1.05, Math.min(1.05, v / R)) * half;
+  const T = lab.rec.t[lab.rec.t.length - 1];
+  const xOf = (t) => inner.l + t / T * (inner.r - inner.l);
+
+  title('ONE TEN-MINUTE RECORD OF THE LIFETIME', 'ONE RECORD', inner.l, P.y + 15, inner.r - inner.l);
+  ctx.font = FONT(500, 10); ctx.strokeStyle = pal.rule; ctx.lineWidth = 1; ctx.fillStyle = pal.muted;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const v of [-R, -R / 2, 0, R / 2, R]) {
+    const y = Math.round(yOf(v)) + 0.5;
+    ctx.globalAlpha = v === 0 ? 1 : 0.45;
+    ctx.beginPath(); ctx.moveTo(inner.l, y); ctx.lineTo(inner.r, y); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillText(v === 0 ? '0' : (v < 0 ? '−' : '') + Math.abs(v), inner.l - 6, y);
+  }
+  ctx.save(); ctx.translate(P.x + 13, mid); ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center'; ctx.fillText('σ (MPa)', 0, 0); ctx.restore();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  const step = inner.r - inner.l < 300 ? 200 : 100;
+  for (let t = 0; t <= T; t += step) {
+    const x = xOf(t);
+    if (x > inner.r - 60 && t > 0) continue;
+    ctx.fillText(String(t), x, inner.b + 4);
+  }
+  ctx.textAlign = 'right'; ctx.fillText('time (s)', inner.r, inner.b + 16);
+
+  if (lab.found) band(inner, yOf, lab.found.sigma, pal.found, true, `σ_eq ≈ ${lab.found.sigma.toFixed(1)} MPa`);
+  else band(inner, yOf, guess(), pal.guess, false, `your σ = ${guess().toFixed(1)} MPa`);
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(inner.l, inner.t - 6, inner.r - inner.l, inner.b - inner.t + 12); ctx.clip();
+  ctx.strokeStyle = pal.signal; ctx.lineWidth = 1.2; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  const { t, s } = lab.rec, every = Math.max(1, Math.floor(t.length / ((inner.r - inner.l) * 2)));
+  for (let i = 0; i < t.length; i += every) (i ? ctx.lineTo(xOf(t[i]), yOf(s[i])) : ctx.moveTo(xOf(t[i]), yOf(s[i])));
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* ---- the S-N plot: the lifetime's histogram, and every Try on the 10^7 line ---- */
+
+const A_LO = 2, A_HI = 250;
+function drawSN() {
+  const Q = lay.sn;
+  panel(Q);
+  const P = { l: Q.x + 48, r: Q.x + Q.w - 14, t: Q.y + 30, b: Q.y + Q.h - 34 };
+  if (P.r - P.l < 80 || P.b - P.t < 60) return;
+  const lo = 3, hi = 10;
+  const xOf = (n) => P.l + (Math.log10(Math.max(n, 10 ** lo)) - lo) / (hi - lo) * (P.r - P.l);
+  const yOf = (a) => P.b - (Math.log10(a) - Math.log10(A_LO)) / (Math.log10(A_HI) - Math.log10(A_LO)) * (P.b - P.t);
+  title('S-N CURVE (m = 3): THE LIFETIME, AND EVERY TRY AT 10⁷ CYCLES', 'S-N CURVE AND YOUR TRIES', P.l, Q.y + 15, P.r - P.l);
+
+  ctx.font = FONT(500, 10); ctx.fillStyle = pal.muted; ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const a of [2, 5, 10, 20, 50, 100, 200]) {
+    const y = Math.round(yOf(a)) + 0.5;
+    ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(P.l, y); ctx.lineTo(P.r, y); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.fillText(String(a), P.l - 6, y);
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  const every = P.r - P.l < 260 ? 2 : 1;
+  for (let k = lo; k <= hi; k++) {
+    const x = Math.round(xOf(10 ** k)) + 0.5;
+    ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(x, P.t); ctx.lineTo(x, P.b); ctx.stroke(); ctx.globalAlpha = 1;
+    if ((k - lo) % every === 0 || k === 7) ctx.fillText(pow10(k), x, P.b + 5);
+  }
+  ctx.beginPath(); ctx.moveTo(P.l + 0.5, P.t); ctx.lineTo(P.l + 0.5, P.b + 0.5); ctx.lineTo(P.r, P.b + 0.5); ctx.stroke();
+  ctx.textAlign = 'right'; ctx.fillText('cycles N (log)', P.r, P.b + 19);
+  ctx.save(); ctx.translate(Q.x + 13, (P.t + P.b) / 2); ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('stress amplitude σa (MPa, log)', 0, 0); ctx.restore();
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(P.l, P.t - 2, P.r - P.l, P.b - P.t + 4); ctx.clip();
+  // The lifetime: k times the record's count, binned.
+  const bins = new Map();
+  for (const e of lab.events) bins.set(binOf(e.amp), (bins.get(binOf(e.amp)) || 0) + e.count * lab.k);
+  const bh = Math.max(4, Math.min(9, (P.b - P.t) / 36));
+  ctx.fillStyle = pal.life;
+  for (const [b, n] of bins) {
+    const y = yOf(binCentre(b)), w = Math.max(2, xOf(n) - P.l - 1);
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(P.l + 1, y - bh / 2, w, bh, [0, 3, 3, 0]); else ctx.rect(P.l + 1, y - bh / 2, w, bh);
+    ctx.fill();
+  }
+  // The curve.
+  ctx.strokeStyle = pal.ink; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(xOf(cyclesToFailure(A_LO)), yOf(A_LO)); ctx.lineTo(xOf(cyclesToFailure(A_HI)), yOf(A_HI)); ctx.stroke();
+  // N_eq, and the slider's amplitude as a single bar out to it: one bar standing in for all of them.
+  const xe = xOf(N_EQ);
+  ctx.strokeStyle = pal.soft; ctx.setLineDash([4, 4]); ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(xe, P.t); ctx.lineTo(xe, P.b); ctx.stroke(); ctx.setLineDash([]);
+  const gy = yOf(guess());
+  ctx.strokeStyle = lab.found ? pal.found : pal.guess; ctx.lineWidth = 1.6;
+  ctx.strokeRect(P.l + 1, gy - bh / 2, xe - P.l - 1, bh);
+  ctx.restore();
+
+  ctx.font = FONT(600, 10); ctx.fillStyle = pal.soft; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('N_eq = 10⁷', xe + 5, P.t + 2);
+  const a3 = 6, x3 = xOf(cyclesToFailure(a3));
+  ctx.font = FONT(600, 11); ctx.textBaseline = 'bottom';
+  if (x3 + 46 < P.r) ctx.fillText('m = 3', x3 + 8, yOf(a3) - 3);
+
+  // Every Try, numbered, on the 10^7 line.
+  ctx.font = FONT(700, 10); ctx.textBaseline = 'middle';
+  let lastY = Infinity;
+  lab.tries.forEach((t, i) => {
+    const y = yOf(t.sigma), colour = pal[t.verdict];
+    ctx.fillStyle = colour;
+    ctx.beginPath(); ctx.arc(xe, y, t.verdict === 'found' ? 6 : 4.5, 0, Math.PI * 2); ctx.fill();
+    if (Math.abs(y - lastY) >= 11 || i === lab.tries.length - 1) {
+      ctx.textAlign = 'left';
+      ctx.fillText(String(i + 1), xe + 9 + (i % 2) * 14, y);
+      lastY = y;
+    }
+  });
+}
+
+/* ---- the two damage bars ---- */
+
+let shownTry = 0;
+function drawBars() {
+  const Q = lay.bars;
+  panel(Q);
+  const top = Q.y + 58, bottom = Q.y + Q.h - 40, h = bottom - top;
+  if (h < 40) return;
+  const w = 20, xs = [Q.x + 20, Q.x + 74];
+  const last = lab.tries[lab.tries.length - 1];
+  const bars = [
+    { x: xs[0], D: lab.D, colour: pal.life, label: 'lifetime', value: lab.D.toFixed(3) },
+    { x: xs[1], D: shownTry, colour: last ? pal[last.verdict] : pal.empty, label: '10⁷ at σ', value: last ? (last.D > 9.99 ? '>10' : last.D.toFixed(3)) : '–' },
+  ];
+  ctx.font = FONT(600, 10); ctx.fillStyle = pal.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('DAMAGE', Q.x + Q.w / 2, Q.y + 15);
+  // The target's level across both bars, so the comparison is by eye.
+  const ty = bottom - Math.min(1, lab.D) * h;
+  ctx.strokeStyle = pal.life; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(xs[0] - 6, ty); ctx.lineTo(xs[1] + w + 6, ty); ctx.stroke(); ctx.setLineDash([]);
+  for (const b of bars) {
+    ctx.fillStyle = pal.empty;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(b.x, top, w, h, 4) : ctx.rect(b.x, top, w, h); ctx.fill();
+    const f = Math.min(1, b.D);
+    ctx.fillStyle = b.colour;
+    if (f > 0) ctx.fillRect(b.x, bottom - f * h, w, f * h);
+    if (b.D > 1) { ctx.beginPath(); ctx.moveTo(b.x - 2, top); ctx.lineTo(b.x + w / 2, top - 9); ctx.lineTo(b.x + w + 2, top); ctx.fill(); }
+    ctx.font = FONT(700, 12); ctx.fillStyle = pal.ink; ctx.textBaseline = 'bottom';
+    ctx.fillText(b.value, b.x + w / 2, top - 12);
+    ctx.font = FONT(500, 10); ctx.fillStyle = pal.muted; ctx.textBaseline = 'top';
+    ctx.fillText(b.label, b.x + w / 2, bottom + 6);
+  }
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.strokeStyle = pal.rule;
+  for (const v of [0, 0.5, 1]) {
+    const y = Math.round(bottom - v * h) + 0.5;
+    ctx.fillStyle = pal.muted; ctx.fillText(String(v), xs[1] + w + 5, y);
+  }
+}
+
+function render() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  drawRecord();
+  drawSN();
+  drawBars();
+}
+
+/* ------------------------------------------------------------- controls */
+
+const $ = (id) => document.getElementById(id);
+const ui = { sd: $('sd'), g: $('g'), newsig: $('newsig'), minus: $('minus'), plus: $('plus'), try: $('try'), show: $('show'), answer: $('answer') };
+const guess = () => Number(ui.g.value);
+
+function setGuess(v) {
+  ui.g.value = String(Math.max(1, Math.min(120, Math.round(v * 10) / 10)));
+  sync();
+}
+
+function rebuild() {
+  buildLifetime();
+  shownTry = 0;
+  sync();
+}
+
+function sync() {
+  $('sd-out').textContent = `${lab.sd} MPa`;
+  $('g-out').textContent = `${guess().toFixed(1)} MPa`;
+  const years = lab.k * SEA.seconds / 3.156e7;
+  const st = lifetimeStats();
+  $('life').innerHTML = `The record × <b>${whole(lab.k)}</b> (about ${years < 1 ? years.toFixed(2) : years.toFixed(1)} years): ` +
+    `<b>${sci(st.n)}</b> cycles of all sizes, <b>D = ${lab.D.toFixed(3)}</b>.`;
+  const last = lab.tries[lab.tries.length - 1];
+  let html;
+  if (lab.found) {
+    html = `<b class="found">Found in ${lab.found.tries} tr${lab.found.tries === 1 ? 'y' : 'ies'}: σ_eq ≈ ${lab.found.sigma.toFixed(1)} MPa</b><br>` +
+      `The lifetime's ${sci(st.n)} cycles: mean <b>${st.mean.toFixed(1)}</b>, rms <b>${st.rms.toFixed(1)}</b>, largest <b>${st.big.toFixed(1)}</b> MPa. ` +
+      `For its own ${sci(st.n)} cycles instead of 10⁷, the equivalent is <b>${st.own.toFixed(1)}</b> MPa: above the rms, because the big cycles weigh most.`;
+  } else if (last) {
+    const word = last.verdict === 'low' ? 'too low' : 'too high';
+    html = `Try ${lab.tries.length}: ${last.sigma.toFixed(1)} MPa gives D = <b>${last.D > 9.99 ? '> 10' : last.D.toFixed(3)}</b> ` +
+      `against ${lab.D.toFixed(3)}: <b class="${last.verdict}">${word}</b>.`;
+  } else html = 'Find the σ that, for 10⁷ cycles, does the same damage. Set it, then <b>Try</b>.';
+  if ($('verdict').innerHTML !== html) $('verdict').innerHTML = html;
+  $('a-num').innerHTML = `= ( ${whole(lab.k)} × ${sci(recordMoment(lab.events))} MPa³ / 10⁷ )<sup>1/3</sup> = <b>${lab.sigmaEq.toFixed(2)} MPa</b>`;
+}
+
+ui.sd.addEventListener('input', () => { lab.sd = Number(ui.sd.value); rebuild(); });
+ui.newsig.addEventListener('click', () => { lab.seed = (lab.seed * 48271 + 11) % 2147483647; rebuild(); });
+ui.g.addEventListener('input', sync);
+ui.minus.addEventListener('click', () => setGuess(guess() - 0.1));
+ui.plus.addEventListener('click', () => setGuess(guess() + 0.1));
+ui.try.addEventListener('click', () => { tryAt(guess()); sync(); });
+ui.show.addEventListener('click', () => {
+  ui.answer.hidden = !ui.answer.hidden;
+  ui.show.textContent = ui.answer.hidden ? 'Show the answer' : 'Hide the answer';
+  ui.show.setAttribute('aria-expanded', String(!ui.answer.hidden));
+  layout();
+});
+
+/* ----------------------------------------------------------------- loop */
+
+let last = performance.now();
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000);
+  last = t;
+  const target = lab.tries.length ? Math.min(1.08, lab.tries[lab.tries.length - 1].D) : 0;
+  shownTry += (target - shownTry) * Math.min(1, dt * 7);
+  render();
+  requestAnimationFrame(frame);
+}
+
+buildLifetime();
+sync();
+new ResizeObserver(resize).observe(cv);
+new ResizeObserver(layout).observe(controls);
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

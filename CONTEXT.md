@@ -196,6 +196,24 @@ _Avoid_: extraction, loop closing (the hysteresis picture this lab does not draw
 The turning points left when nothing more can be pinched. Each swing between two of them counts as half a cycle.
 _Avoid_: remainder, leftovers
 
+### Equivalent-load lab
+
+**Equivalent-load lab**:
+A random **Record**, repeated over a **Lifetime**, does a target **Damage**. Students search for the **Damage-equivalent stress** by trying amplitudes until 10⁷ cycles at one of them do the same damage.
+_Avoid_: DEL applet (fine in a lecture), fatigue equivalence applet
+
+**Lifetime**:
+k repetitions of one **Record**, with k chosen so the target **Damage** lands between 0.3 and 0.9. Reported in years of ten-minute **Records** for scale.
+_Avoid_: design life (that is a fixed requirement, this is whatever the record adds up to), service life
+
+**Damage-equivalent stress (σ_eq)**:
+The one constant **Stress amplitude** that, applied for N_eq = 10⁷ cycles, does the same **Damage** as the whole **Lifetime**: σ_eq = (Σ nᵢ σᵢᵐ / N_eq)^(1/m). It depends on the chosen N_eq and on m, never on the order of the cycles.
+_Avoid_: DEL, equivalent load (both fine in a lecture; the lab works in stress), fatigue load
+
+**Try**:
+One guess at the **Damage-equivalent stress**: 10⁷ cycles at the chosen amplitude, whose **Damage** is set beside the target and judged too low, too high, or found (within ±2 %).
+_Avoid_: attempt, iteration, guess (fine in prose)
+
 ## Relationships
 
 - A **Tap** or **Shake** acts at one height; the **Probe** reads at another (or the same).
@@ -206,6 +224,7 @@ _Avoid_: remainder, leftovers
 - A **Release** in exactly one **Mode**'s shape stays in that shape; any other **Release** is a mix of both.
 - **Blocks** at the same **Stress amplitude** add into one count; the **Damage** they cause together does not depend on the order they came in.
 - A **Record** counted by rainflow loses no swing: every **Pinch** and every half-cycle of the **Residue** together account for its whole path from turning point to turning point.
+- Two loadings with the same **Damage-equivalent stress** at the same N_eq and m do the same **Damage**, whatever their histograms look like.
 - A heavier **Nacelle** lowers every natural frequency and moves the top of the **Pile** towards being a node of the second **Mode**.
 
 ## Flagged ambiguities

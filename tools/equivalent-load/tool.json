@@ -1,0 +1,8 @@
+{
+  "name": "Equivalent-load lab",
+  "description": "A random stress signal, repeated over a lifetime, does a known fatigue damage. Find the one steady amplitude that does the same damage in 10⁷ cycles, by trying until it fits: the damage-equivalent stress.",
+  "status": "live",
+  "entry": "index.html",
+  "tags": ["fatigue", "structures", "equivalent load"],
+  "course": "46211"
+}

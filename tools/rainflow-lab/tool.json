@@ -1,0 +1,8 @@
+{
+  "name": "Rainflow lab",
+  "description": "Watch a stress record collapse to its peaks and valleys, and rainflow counting pinch out its cycles one at a time. Two sines show why the count matters; a sea shows a real spectrum. Then send repetitions to the S-N curve and fill the Miner sum.",
+  "status": "live",
+  "entry": "index.html",
+  "tags": ["fatigue", "structures", "rainflow"],
+  "course": "46211"
+}

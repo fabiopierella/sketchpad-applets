@@ -9,6 +9,7 @@
     "forcing-lab",
     "modes-lab",
     "two-mass",
-    "fatigue-lab"
+    "fatigue-lab",
+    "rainflow-lab"
   ]
 }

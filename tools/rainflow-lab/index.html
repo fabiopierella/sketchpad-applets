@@ -1,0 +1,835 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rainflow lab</title>
+<style>
+  :root {
+    --ground-hi: #eef1f7; --ground-mid: #e5eaf3; --ground-lo: #d9dfeb;
+    --glass: rgba(255,255,255,.78); --glass-edge: rgba(15,23,42,.10);
+    --ink: #0f172a; --soft: #475569; --muted: #8a94a2;
+    --accent: #2563eb; --warm: #ea580c; --sky: rgba(255,255,255,.55);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground-hi: #1a1f29; --ground-mid: #141922; --ground-lo: #0e1219;
+      --glass: rgba(30,36,48,.80); --glass-edge: rgba(226,232,240,.10);
+      --ink: #e2e8f0; --soft: #c3cbd6; --muted: #8b95a5;
+      --accent: #60a5fa; --warm: #fb923c; --sky: rgba(148,163,184,.08);
+    }
+  }
+  html, body { margin: 0; height: 100%; width: 100%; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(120% 85% at 50% -8%, var(--sky), rgba(255,255,255,0) 58%),
+      radial-gradient(140% 120% at 50% 50%, rgba(15,23,42,0) 55%, rgba(15,23,42,.07) 100%),
+      linear-gradient(180deg, var(--ground-hi) 0%, var(--ground-mid) 46%, var(--ground-lo) 100%);
+    background-color: var(--ground-mid);
+    font: 500 13px/1.35 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--ink);
+    -webkit-text-size-adjust: 100%;
+  }
+  canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+
+  .glass {
+    background: var(--glass); border: 1px solid var(--glass-edge);
+    border-radius: 11px; box-shadow: 0 1px 3px rgba(15,23,42,.08);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  #controls {
+    position: fixed; top: 12px; left: 12px; z-index: 2; padding: 8px 12px 10px;
+    box-sizing: border-box; width: 340px; max-width: calc(100vw - 24px);
+  }
+  h2 { margin: 6px 0 3px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  h2:first-child { margin-top: 0; }
+  .row { display: grid; grid-template-columns: 74px 1fr 78px; align-items: center; gap: 8px; margin: 1px 0; }
+  .row label { font-size: 12px; font-weight: 600; color: var(--soft); }
+  .row output { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  input[type=range] { width: 100%; margin: 0; accent-color: var(--accent); }
+  .buttons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
+  button {
+    height: 30px; padding: 0 11px; cursor: pointer;
+    font: 600 12px/1 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--soft); letter-spacing: .03em;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:hover, button:focus-visible { color: var(--ink); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: default; color: var(--soft); }
+  button[aria-pressed="true"] { color: var(--ink); background: var(--glass-edge); }
+  .primary:not(:disabled) { color: #fff; background: var(--accent); border-color: transparent; }
+  .seg { display: flex; gap: 0; }
+  .seg button { border-radius: 0; }
+  .seg button:first-child { border-radius: 9px 0 0 9px; }
+  .seg button:last-child { border-radius: 0 9px 9px 0; border-left: 0; }
+  #result { margin-top: 5px; font-size: 12px; color: var(--soft); min-height: 16px; }
+  #result b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  #result .big { color: var(--warm); }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="A stress record is collapsed to its peaks and valleys, and rainflow counting pinches out its cycles one by one into a histogram. Repetitions of the record are then sent to an S-N curve, and a damage bar fills by the Palmgren-Miner rule."></canvas>
+
+<div id="controls" class="glass">
+  <h2>Record</h2>
+  <div class="seg" role="group" aria-label="Source">
+    <button id="src-sines" class="glass" type="button" aria-pressed="true">Two sines</button>
+    <button id="src-sea" class="glass" type="button" aria-pressed="false">Sea</button>
+  </div>
+  <div id="sines-ctl">
+    <div class="row"><label for="s1">σ₁ slow</label><input id="s1" type="range" min="10" max="150" step="5" value="60"><output id="s1-out"></output></div>
+    <div class="row"><label for="s2">σ₂ fast</label><input id="s2" type="range" min="5" max="80" step="5" value="20"><output id="s2-out"></output></div>
+    <div class="row"><label for="r">f₂ / f₁</label><input id="r" type="range" min="2" max="12" step="1" value="6"><output id="r-out"></output></div>
+  </div>
+  <div id="sea-ctl" hidden>
+    <div class="row"><label for="sd">stress level</label><input id="sd" type="range" min="5" max="60" step="5" value="20"><output id="sd-out"></output></div>
+    <div class="buttons"><button id="newsea" class="glass" type="button">New sea</button></div>
+  </div>
+  <h2>Count</h2>
+  <div class="buttons">
+    <button id="peaks" class="glass" type="button">Peaks</button>
+    <button id="step" class="glass primary" type="button">Step</button>
+    <button id="play" class="glass" type="button" aria-pressed="false">Play</button>
+    <button id="all" class="glass" type="button">Count all</button>
+  </div>
+  <div id="result" aria-live="polite"></div>
+  <h2>Miner</h2>
+  <div class="row"><label for="k">repeat k</label><input id="k" type="range" min="0" max="18" step="1" value="12"><output id="k-out"></output></div>
+  <div class="buttons">
+    <button id="send" class="glass primary" type="button">Send</button>
+    <button id="reset" class="glass" type="button">Reset damage</button>
+  </div>
+</div>
+
+<script>
+/* ---------------------------------------------------------------- physics
+ *
+ * The S-N curve is the Fatigue lab's: one slope, m = 3, for the stress
+ * amplitude sa in MPa, with the lives of DNV-RP-C203's D-curve in air
+ * (written there for the range 2 sa, so log a = 12.164 - 3 log 2).
+ *
+ * Rainflow counting by the four-point rule. Turning points go onto a stack;
+ * whenever the last four, A B C D, have the swing B-C inside both A-B and C-D,
+ * B-C is a full cycle and comes out - a Pinch - so A joins D. What is left at
+ * the end, the residue, counts as one half-cycle per swing. This gives the
+ * same counts as ASTM E1049's rainflow, which verify.mjs checks.
+ *
+ * verify.mjs slices this section and the state after it out, from this first
+ * line to the "rendering" banner. Keep both markers, and keep the state free
+ * of the DOM.
+ */
+const SN = { m: 3, logA: 12.164 - 3 * Math.log10(2) };
+
+/** Cycles to failure N at a constant stress amplitude sa (MPa). */
+function cyclesToFailure(sa) {
+  return 10 ** (SN.logA - SN.m * Math.log10(sa));
+}
+
+/** The peaks and valleys of a sampled signal, both ends included. */
+function turningPoints(t, s) {
+  const out = [{ t: t[0], s: s[0] }];
+  let dir = 0;
+  for (let i = 1; i < s.length; i++) {
+    const d = Math.sign(s[i] - s[i - 1]);
+    if (d === 0) continue;
+    if (dir !== 0 && d !== dir) out.push({ t: t[i - 1], s: s[i - 1] });
+    dir = d;
+  }
+  out.push({ t: t[t.length - 1], s: s[s.length - 1] });
+  return out;
+}
+
+/**
+ * Count turning points by rainflow. Returns the events in the order the
+ * count finds them: every Pinch (a full cycle, count 1), then the residue's
+ * half-cycles (count 0.5). b and c index the turning points of the swing.
+ */
+function rainflow(points) {
+  const events = [], stack = [];
+  const swing = (i, j) => Math.abs(points[i].s - points[j].s);
+  for (let i = 0; i < points.length; i++) {
+    stack.push(i);
+    while (stack.length >= 4) {
+      const [a, b, c, d] = stack.slice(-4);
+      const x = swing(b, c);
+      if (x <= swing(a, b) && x <= swing(c, d)) {
+        events.push({ kind: 'cycle', b, c, amp: x / 2, count: 1 });
+        stack.splice(stack.length - 3, 2);
+      } else break;
+    }
+  }
+  for (let i = 0; i + 1 < stack.length; i++) {
+    const amp = swing(stack[i], stack[i + 1]) / 2;
+    if (amp > 0) events.push({ kind: 'half', b: stack[i], c: stack[i + 1], amp, count: 0.5 });
+  }
+  return events;
+}
+
+/** Miner damage of a list of counted events. */
+function damageOf(events) {
+  return events.reduce((D, e) => D + e.count / cyclesToFailure(e.amp), 0);
+}
+
+/** The total swing from turning point to turning point. */
+function pathLength(points) {
+  let L = 0;
+  for (let i = 1; i < points.length; i++) L += Math.abs(points[i].s - points[i - 1].s);
+  return L;
+}
+
+/**
+ * Two sines over one slow period, t in units of that period. Both start at
+ * their crest, so the record starts and ends on its highest point, and a
+ * repeated record joins up with no extra swing.
+ */
+function twoSines(s1, s2, r) {
+  const n = 240 * r, t = new Float64Array(n + 1), s = new Float64Array(n + 1);
+  for (let i = 0; i <= n; i++) {
+    t[i] = i / n;
+    s[i] = s1 * Math.cos(2 * Math.PI * t[i]) + s2 * Math.cos(2 * Math.PI * r * t[i]);
+  }
+  return { t, s };
+}
+
+/** A small seeded random generator, so a sea can be drawn again. */
+function mulberry32(seed) {
+  return () => {
+    seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+    let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const SEA = { Tp: 10, gamma: 3.3, points: 41 };
+
+/**
+ * A JONSWAP sea at Tp = 10 s with a standard deviation of sd MPa, cut off
+ * at its 41st turning point, t in seconds.
+ */
+function seaRecord(sd, seed) {
+  const rnd = mulberry32(seed), fp = 1 / SEA.Tp, nc = 90, f0 = 0.5 * fp, f1 = 3.5 * fp, df = (f1 - f0) / nc;
+  const comps = [];
+  let variance = 0;
+  for (let i = 0; i < nc; i++) {
+    const f = f0 + (i + 0.5) * df;
+    const sig = f <= fp ? 0.07 : 0.09;
+    const S = f ** -5 * Math.exp(-1.25 * (fp / f) ** 4) * SEA.gamma ** Math.exp(-((f - fp) ** 2) / (2 * sig * sig * fp * fp));
+    const a = Math.sqrt(2 * S * df);
+    comps.push({ f, a, ph: 2 * Math.PI * rnd() });
+    variance += a * a / 2;
+  }
+  const k = sd / Math.sqrt(variance), dt = 0.05, n = Math.round(20 * SEA.points / dt);
+  const t = [], s = [];
+  let turns = 1, dir = 0;
+  for (let i = 0; i <= n; i++) {
+    const ti = i * dt;
+    let v = 0;
+    for (const c of comps) v += c.a * Math.cos(2 * Math.PI * c.f * ti + c.ph);
+    v *= k;
+    if (s.length) {
+      const d = Math.sign(v - s[s.length - 1]);
+      if (d !== 0 && dir !== 0 && d !== dir && ++turns >= SEA.points) break;
+      if (d !== 0) dir = d;
+    }
+    t.push(ti); s.push(v);
+  }
+  return { t: Float64Array.from(t), s: Float64Array.from(s) };
+}
+
+/** Histogram bins of the stress amplitude: 5 MPa wide. */
+const BIN = 5;
+const binOf = (amp) => Math.floor(amp / BIN);
+const binCentre = (i) => (i + 0.5) * BIN;
+
+/* --------------------------------------------------------------- state */
+
+/** The repetition counts the k slider steps through: 1, 2 and 5 x 10^j. */
+const KS = [];
+for (let j = 0; j <= 6; j++) for (const f of [1, 2, 5]) if (f * 10 ** j <= 1e6) KS.push(f * 10 ** j);
+
+const lab = {
+  source: 'sines', s1: 60, s2: 20, r: 6, sd: 20, seed: 7,
+  rec: null, points: [], events: [], applied: 0, collapsed: false,
+  /** This record's histogram: bin -> { full, half, D }, D from the exact amplitudes. */
+  hist: new Map(),
+  /** Everything sent to the S-N plot so far: bin -> cycles, and the damage. */
+  sent: new Map(), D: 0, broken: null,
+};
+
+/** Make the Record afresh from the settings; the count starts over. */
+function buildRecord() {
+  lab.rec = lab.source === 'sines' ? twoSines(lab.s1, lab.s2, lab.r) : seaRecord(lab.sd, lab.seed);
+  lab.points = turningPoints(lab.rec.t, lab.rec.s);
+  lab.events = rainflow(lab.points);
+  lab.applied = 0;
+  lab.collapsed = false;
+  lab.hist = new Map();
+}
+
+/** Count the next event into the histogram. Returns it, or null when done. */
+function stepCount() {
+  if (lab.applied >= lab.events.length) return null;
+  lab.collapsed = true;
+  const e = lab.events[lab.applied++];
+  const b = binOf(e.amp);
+  const h = lab.hist.get(b) || { full: 0, half: 0, D: 0 };
+  if (e.kind === 'cycle') h.full += 1; else h.half += 0.5;
+  h.D += e.count / cyclesToFailure(e.amp);
+  lab.hist.set(b, h);
+  return e;
+}
+
+const counted = () => lab.applied >= lab.events.length;
+const recordDamage = () => damageOf(lab.events);
+
+/** Counted per sine, the way the Fatigue lab would: one sigma1 cycle, r sigma2 cycles. */
+function perSineDamage() {
+  return 1 / cyclesToFailure(lab.s1) + lab.r / cyclesToFailure(lab.s2);
+}
+
+/**
+ * Send k repetitions of the counted Record. If they would take D past 1,
+ * only the repetitions up to the break are taken.
+ */
+function sendRecords(k) {
+  if (!counted() || lab.broken) return;
+  const Dr = recordDamage();
+  let take = k;
+  if (lab.D + k * Dr >= 1) {
+    take = Math.max(1, Math.ceil((1 - lab.D) / Dr - 1e-9));
+    lab.broken = { k, take };
+  }
+  for (const [b, h] of lab.hist) lab.sent.set(b, (lab.sent.get(b) || 0) + take * (h.full + h.half));
+  lab.D = lab.broken ? 1 : lab.D + take * Dr;
+}
+
+function resetDamage() {
+  lab.sent = new Map(); lab.D = 0; lab.broken = null;
+}
+
+/* ------------------------------------------------------------ rendering */
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, lay = null;
+
+function readPalette() {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  return dark ? {
+    ink: '#e2e8f0', soft: '#c3cbd6', muted: 'rgba(148,163,184,0.85)', rule: 'rgba(148,163,184,0.30)',
+    panel: 'rgba(30,36,48,0.72)', surface: '#1b212c', empty: 'rgba(148,163,184,0.16)',
+    signal: '#c3cbd6', ghost: 'rgba(148,163,184,0.28)', cycle: '#3987e5', half: '57,135,229', hot: '#d95926', warm: '251,146,60',
+  } : {
+    ink: '#0f172a', soft: '#475569', muted: 'rgba(71,85,105,0.9)', rule: 'rgba(100,116,139,0.32)',
+    panel: 'rgba(255,255,255,0.72)', surface: '#f4f6fa', empty: 'rgba(100,116,139,0.14)',
+    signal: '#334155', ghost: 'rgba(100,116,139,0.30)', cycle: '#2a78d6', half: '42,120,214', hot: '#eb6834', warm: '234,88,12',
+  };
+}
+let pal = readPalette();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { pal = readPalette(); });
+const rgba = (c, a) => `rgba(${c},${a.toFixed(3)})`;
+const FONT = (w, s) => `${w} ${s}px system-ui,-apple-system,"Segoe UI",Arial,sans-serif`;
+
+const SUP = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
+const pow10 = (k) => '10' + String(k).split('').map((c) => SUP[c]).join('');
+function sci(x, digits = 3) {
+  if (!(x > 0)) return '0';
+  let k = Math.floor(Math.log10(x));
+  let m = Number((x / 10 ** k).toPrecision(digits));
+  if (m >= 10) { m /= 10; k += 1; }
+  if (k >= -2 && k <= 3) return String(Number(x.toPrecision(digits)));
+  return m === 1 ? pow10(k) : `${m}·${pow10(k)}`;
+}
+const whole = (x) => Math.round(x).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+const halves = (x) => (Number.isInteger(x) ? String(x) : `${Math.floor(x) || ''}½`);
+
+const controls = document.getElementById('controls');
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = cv.clientWidth; H = cv.clientHeight;
+  const bw = Math.round(W * DPR), bh = Math.round(H * DPR);
+  if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+  layout();
+}
+
+/**
+ * Wide: the controls top left, the record beside them, and under both the
+ * histogram, the S-N plot and the damage bar in a row, sharing one amplitude
+ * axis. Narrow: the controls, the record, then the row.
+ */
+function layout() {
+  const c = controls.getBoundingClientRect();
+  const wide = W >= 820 && W / H > 1.1;
+  let rec, row;
+  if (wide) {
+    const topH = Math.max(c.height, H * 0.42);
+    rec = { x: c.right + 10, y: 12, w: W - c.right - 22, h: topH };
+    row = { x: 12, y: 12 + topH + 10, w: W - 24, h: H - topH - 34 };
+  } else {
+    const top = c.bottom + 8, rest = H - top - 10;
+    const rh = Math.round(Math.max(130, rest * 0.42));
+    rec = { x: 8, y: top, w: W - 16, h: rh };
+    row = { x: 8, y: top + rh + 8, w: W - 16, h: rest - rh - 8 };
+  }
+  const barW = 58;
+  const histW = Math.round((row.w - barW) * (wide ? 0.3 : 0.36));
+  lay = {
+    wide, rec,
+    hist: { x: row.x, y: row.y, w: histW, h: row.h },
+    sn: { x: row.x + histW + 8, y: row.y, w: row.w - histW - barW - 16, h: row.h },
+    bar: { x: row.x + row.w - barW, y: row.y, w: barW, h: row.h },
+  };
+}
+
+function panel(P) {
+  ctx.fillStyle = pal.panel; ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(P.x, P.y, P.w, P.h, 11) : ctx.rect(P.x, P.y, P.w, P.h); ctx.fill();
+}
+function title(text, short, x, y, room) {
+  ctx.font = FONT(600, 10); ctx.fillStyle = pal.muted; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(ctx.measureText(text).width <= room ? text : short, x, y);
+}
+
+/* ---- the record ---- */
+
+/** The animation clock and what is moving: the collapse, and cycles in flight. */
+let now = 0, collapseAt = -10, flights = [];
+const COLLAPSE_S = 0.7, FLIGHT_S = 0.55;
+
+/** A nice symmetric range for the record's stress axis. */
+function recordRange() {
+  let peak = 0;
+  for (const v of lab.rec.s) peak = Math.max(peak, Math.abs(v));
+  return [25, 50, 100, 150, 200, 250, 300].find((r) => peak <= r * 0.96) ?? 300;
+}
+
+/** Where a turning point sits: at its time, or at its place in order once collapsed. */
+function pointX(i, inner, k) {
+  const p = lab.points[i], t0 = lab.rec.t[0], t1 = lab.rec.t[lab.rec.t.length - 1];
+  const xt = inner.l + (p.t - t0) / (t1 - t0) * (inner.r - inner.l);
+  const xo = inner.l + i / (lab.points.length - 1) * (inner.r - inner.l);
+  return xt + (xo - xt) * k;
+}
+
+function drawRecord() {
+  const P = lay.rec;
+  panel(P);
+  const inner = { l: P.x + 48, r: P.x + P.w - 14, t: P.y + 30, b: P.y + P.h - 32 };
+  if (inner.r - inner.l < 80 || inner.b - inner.t < 50) return;
+  const R = recordRange(), mid = (inner.t + inner.b) / 2, half = (inner.b - inner.t) / 2;
+  const yOf = (v) => mid - v / R * half;
+  const kRaw = lab.collapsed ? Math.min(1, (now - collapseAt) / COLLAPSE_S) : 0;
+  const k = kRaw * kRaw * (3 - 2 * kRaw);
+
+  title('STRESS RECORD AT THE HOT SPOT', 'STRESS RECORD', inner.l, P.y + 15, inner.r - inner.l);
+
+  // Axes.
+  ctx.font = FONT(500, 10); ctx.strokeStyle = pal.rule; ctx.lineWidth = 1; ctx.fillStyle = pal.muted;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const v of [-R, -R / 2, 0, R / 2, R]) {
+    const y = Math.round(yOf(v)) + 0.5;
+    ctx.globalAlpha = v === 0 ? 1 : 0.45;
+    ctx.beginPath(); ctx.moveTo(inner.l, y); ctx.lineTo(inner.r, y); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillText(v === 0 ? '0' : (v < 0 ? '−' : '') + Math.abs(v), inner.l - 6, y);
+  }
+  ctx.save(); ctx.translate(P.x + 13, mid); ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center'; ctx.fillText('σ (MPa)', 0, 0); ctx.restore();
+  ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+  const xLabel = k < 0.5
+    ? (lab.source === 'sines' ? 'time, in periods of the slow sine' : 'time (s)')
+    : 'turning points, in order (time no longer matters)';
+  ctx.fillText(xLabel, inner.r, inner.b + 16);
+  if (k < 0.5) {
+    const t1 = lab.rec.t[lab.rec.t.length - 1];
+    const step = lab.source === 'sines' ? 0.25 : (t1 > 100 ? 20 : 10);
+    ctx.textAlign = 'center';
+    for (let t = 0; t <= t1 + 1e-9; t += step) {
+      const x = inner.l + t / t1 * (inner.r - inner.l);
+      if (x > inner.r - 150 && t > 0) continue;
+      ctx.fillText(lab.source === 'sines' ? String(t) : String(Math.round(t)), x, inner.b + 4);
+    }
+  }
+
+  // The continuous signal fades as it collapses to its turning points.
+  if (k < 1) {
+    ctx.globalAlpha = 1 - k;
+    ctx.strokeStyle = pal.signal; ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    const { t, s } = lab.rec, t0 = t[0], t1 = t[t.length - 1];
+    for (let i = 0; i < t.length; i++) {
+      const x = inner.l + (t[i] - t0) / (t1 - t0) * (inner.r - inner.l), y = yOf(s[i]);
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // Which turning points are gone, and which swings are counted halves.
+  const gone = new Set(), halfSwings = [];
+  for (let i = 0; i < lab.applied; i++) {
+    const e = lab.events[i];
+    if (e.kind === 'cycle') { gone.add(e.b); gone.add(e.c); } else halfSwings.push(e);
+  }
+  const X = (i) => pointX(i, inner, k), Y = (i) => yOf(lab.points[i].s);
+
+  if (lab.collapsed) {
+    // What was there, faintly, so the pinched cycles leave a trace.
+    ctx.strokeStyle = pal.ghost; ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    lab.points.forEach((_, i) => (i ? ctx.lineTo(X(i), Y(i)) : ctx.moveTo(X(i), Y(i))));
+    ctx.stroke();
+  }
+
+  // The signal as it is now: the turning points still in play.
+  const live = lab.points.map((_, i) => i).filter((i) => !gone.has(i));
+  ctx.strokeStyle = pal.signal; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.globalAlpha = lab.collapsed ? Math.max(k, 0.0) : 0;
+  ctx.beginPath();
+  live.forEach((i, j) => (j ? ctx.lineTo(X(i), Y(i)) : ctx.moveTo(X(i), Y(i))));
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Halves of the residue, once counted: dashed, each marked with a half.
+  ctx.font = FONT(700, 11); ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  for (const e of halfSwings) {
+    ctx.strokeStyle = rgba(pal.half, 0.9); ctx.lineWidth = 3; ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.moveTo(X(e.b), Y(e.b)); ctx.lineTo(X(e.c), Y(e.c)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = rgba(pal.half, 1);
+    ctx.fillText('½', (X(e.b) + X(e.c)) / 2 + 7, (Y(e.b) + Y(e.c)) / 2);
+  }
+
+  // Turning points.
+  ctx.fillStyle = pal.signal;
+  for (const i of live) { ctx.beginPath(); ctx.arc(X(i), Y(i), lab.collapsed ? 3 : 2.2, 0, Math.PI * 2); ctx.fill(); }
+
+  // The swing just pinched: lit, and lifting away.
+  for (const f of flights) {
+    const p = Math.min(1, (now - f.at) / FLIGHT_S);
+    if (p >= 1) continue;
+    const e = f.e;
+    ctx.strokeStyle = e.kind === 'cycle' ? pal.cycle : rgba(pal.half, 1);
+    ctx.globalAlpha = 1 - p * 0.6; ctx.lineWidth = 3.2;
+    ctx.beginPath(); ctx.moveTo(X(e.b), Y(e.b) - p * 12); ctx.lineTo(X(e.c), Y(e.c) - p * 12); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  // The four points of the next pinch, so students can check the rule.
+  const next = lab.events[lab.applied];
+  if (lab.collapsed && next && next.kind === 'cycle' && k >= 1) {
+    const at = live.indexOf(next.b);
+    if (at > 0 && at + 2 < live.length) {
+      const four = [live[at - 1], next.b, next.c, live[at + 2]];
+      ctx.font = FONT(700, 10); ctx.textBaseline = 'middle';
+      ['A', 'B', 'C', 'D'].forEach((L, j) => {
+        const i = four[j], up = lab.points[i].s >= (j ? lab.points[four[j - 1]].s : lab.points[four[1]].s);
+        ctx.fillStyle = j === 1 || j === 2 ? pal.cycle : pal.muted;
+        ctx.fillText(L, X(i), Y(i) + (up ? -11 : 11));
+      });
+    }
+  }
+}
+
+/* ---- the histogram and the S-N plot, on one amplitude axis ---- */
+
+const A_LO = 2, A_HI = 250, N_LO = 1, N_HI = 1e10;
+const ampY = (P, a) => P.b - (Math.log10(a) - Math.log10(A_LO)) / (Math.log10(A_HI) - Math.log10(A_LO)) * (P.b - P.t);
+const A_TICKS = [2, 5, 10, 20, 50, 100, 200];
+
+function ampAxis(P, labels) {
+  ctx.font = FONT(500, 10); ctx.fillStyle = pal.muted; ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const a of A_TICKS) {
+    const y = Math.round(ampY(P, a)) + 0.5;
+    ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(P.l, y); ctx.lineTo(P.r, y); ctx.stroke(); ctx.globalAlpha = 1;
+    if (labels) ctx.fillText(String(a), P.l - 6, y);
+  }
+}
+
+function drawHist() {
+  const Q = lay.hist;
+  panel(Q);
+  const P = { l: Q.x + 46, r: Q.x + Q.w - 12, t: Q.y + 30, b: Q.y + Q.h - 34 };
+  if (P.r - P.l < 40 || P.b - P.t < 50) return;
+  title('CYCLES IN ONE RECORD', 'CYCLES', P.l, Q.y + 15, P.r - P.l);
+  ampAxis(P, true);
+  ctx.save(); ctx.translate(Q.x + 12, (P.t + P.b) / 2); ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = pal.muted; ctx.font = FONT(500, 10);
+  ctx.fillText('stress amplitude σa (MPa, log)', 0, 0); ctx.restore();
+
+  // Count axis: linear, from 0 to a round number above the largest bin.
+  let most = 1;
+  const totals = new Map();
+  for (const e of lab.events) totals.set(binOf(e.amp), (totals.get(binOf(e.amp)) || 0) + e.count);
+  for (const v of totals.values()) most = Math.max(most, v);
+  const top = [2, 3, 4, 5, 8, 10, 15, 20, 25, 30, 40, 50].find((v) => most <= v * 0.85) ?? Math.ceil(most / 10) * 10;
+  const xOf = (n) => P.l + n / top * (P.r - P.l);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = pal.muted;
+  const tickStep = top <= 5 ? 1 : top <= 10 ? 2 : top <= 25 ? 5 : 10;
+  for (let n = 0; n <= top; n += tickStep) {
+    const x = Math.round(xOf(n)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, P.b); ctx.lineTo(x, P.b + 4); ctx.stroke();
+    ctx.fillText(String(n), x, P.b + 5);
+  }
+  ctx.beginPath(); ctx.moveTo(P.l + 0.5, P.t); ctx.lineTo(P.l + 0.5, P.b + 0.5); ctx.lineTo(P.r, P.b + 0.5); ctx.stroke();
+  ctx.textAlign = 'right'; ctx.fillText('cycles', P.r, P.b + 19);
+
+  // Bars: full cycles solid, the residue's halves lighter after them.
+  const bh = Math.max(5, Math.min(10, (P.b - P.t) / 34));
+  for (const [b, h] of lab.hist) {
+    const y = ampY(P, binCentre(b));
+    const xf = xOf(h.full), xh = xOf(h.full + h.half);
+    ctx.fillStyle = pal.cycle;
+    if (h.full > 0) ctx.fillRect(P.l + 1, y - bh / 2, xf - P.l - 1, bh);
+    if (h.half > 0) { ctx.fillStyle = rgba(pal.half, 0.5); ctx.fillRect(xf + (h.full ? 1 : 1), y - bh / 2, xh - xf - 1, bh); }
+  }
+  lay.histPlot = { P, xOf, bh };
+
+  // Cycles in flight, from the record into their bin.
+  for (const f of flights) {
+    const p = Math.min(1, (now - f.at) / FLIGHT_S);
+    if (p >= 1 || !f.from) continue;
+    const e = f.e, to = { x: xOf((lab.hist.get(binOf(e.amp))?.full || 0) + (lab.hist.get(binOf(e.amp))?.half || 0)), y: ampY(P, binCentre(binOf(e.amp))) };
+    const q = p * p * (3 - 2 * p);
+    const x = f.from.x + (to.x - f.from.x) * q, y = f.from.y + (to.y - f.from.y) * q - Math.sin(Math.PI * q) * 40;
+    ctx.fillStyle = e.kind === 'cycle' ? pal.cycle : rgba(pal.half, 1);
+    ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawSN() {
+  const Q = lay.sn;
+  panel(Q);
+  const P = { l: Q.x + 34, r: Q.x + Q.w - 12, t: Q.y + 30, b: Q.y + Q.h - 34 };
+  if (P.r - P.l < 60 || P.b - P.t < 50) return;
+  title('S-N CURVE (m = 3) AND EVERYTHING SENT', 'S-N CURVE', P.l, Q.y + 15, P.r - P.l);
+  ampAxis(P, true);
+  const lo = 3, hi = 10;
+  const xOf = (n) => P.l + (Math.log10(Math.max(n, 10 ** lo)) - lo) / (hi - lo) * (P.r - P.l);
+  ctx.font = FONT(500, 10); ctx.fillStyle = pal.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  const every = P.r - P.l < 260 ? 2 : 1;
+  for (let k = lo; k <= hi; k++) {
+    const x = Math.round(xOf(10 ** k)) + 0.5;
+    ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(x, P.t); ctx.lineTo(x, P.b); ctx.stroke(); ctx.globalAlpha = 1;
+    if ((k - lo) % every === 0) ctx.fillText(pow10(k), x, P.b + 5);
+  }
+  ctx.beginPath(); ctx.moveTo(P.l + 0.5, P.t); ctx.lineTo(P.l + 0.5, P.b + 0.5); ctx.lineTo(P.r, P.b + 0.5); ctx.stroke();
+  ctx.textAlign = 'right'; ctx.fillText('cycles N (log)', P.r, P.b + 19);
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(P.l, P.t - 2, P.r - P.l, P.b - P.t + 4); ctx.clip();
+  // Everything sent: k times the histogram, per bin.
+  const bh = Math.max(5, Math.min(10, (P.b - P.t) / 34));
+  let Dtot = 0;
+  const shares = [];
+  for (const [b, n] of lab.sent) {
+    const y = ampY(P, binCentre(b));
+    ctx.fillStyle = pal.cycle;
+    ctx.beginPath();
+    const w = Math.max(2, xOf(n) - P.l - 1);
+    if (ctx.roundRect) ctx.roundRect(P.l + 1, y - bh / 2, w, bh, [0, 3, 3, 0]); else ctx.rect(P.l + 1, y - bh / 2, w, bh);
+    ctx.fill();
+    const d = n / cyclesToFailure(binCentre(b));
+    Dtot += d; shares.push({ b, d, x: P.l + 1 + w, y });
+  }
+  // The curve.
+  ctx.strokeStyle = pal.ink; ctx.lineWidth = 2;
+  ctx.beginPath();
+  const a0 = A_LO, a1 = A_HI;
+  ctx.moveTo(xOf(cyclesToFailure(a0)), ampY(P, a0)); ctx.lineTo(xOf(cyclesToFailure(a1)), ampY(P, a1));
+  ctx.stroke();
+  ctx.restore();
+  ctx.font = FONT(600, 11); ctx.fillStyle = pal.soft; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  // Just right of the line, low down, clear of the bars and their labels.
+  const a3 = 8, x3 = xOf(cyclesToFailure(a3));
+  if (x3 + 46 < P.r) ctx.fillText('m = 3', x3 + 8, ampY(P, a3) - 3);
+
+  // Which bins carry the damage: the two biggest shares, labelled.
+  ctx.font = FONT(600, 11); ctx.textBaseline = 'middle';
+  const roomy = P.r - P.l > 300;
+  const placed = [];
+  shares.sort((p, q) => q.d - p.d).slice(0, roomy ? 2 : 1).forEach((s) => {
+    if (Dtot <= 0 || placed.some((y) => Math.abs(y - s.y) < 15)) return;
+    placed.push(s.y);
+    const pct = Math.round(100 * s.d / Dtot);
+    const label = roomy ? `${binCentre(s.b) - BIN / 2}–${binCentre(s.b) + BIN / 2} MPa: ${pct} % of D` : `${pct} % of D`;
+    const tw = ctx.measureText(label).width, lx = Math.min(P.r - tw - 4, s.x + 6);
+    ctx.fillStyle = pal.panel; ctx.fillRect(lx - 2, s.y - 7, tw + 4, 14);
+    ctx.fillStyle = pal.ink; ctx.textAlign = 'left'; ctx.fillText(label, lx, s.y);
+  });
+}
+
+function drawBar() {
+  const Q = lay.bar;
+  const top = Q.y + 46, bottom = Q.y + Q.h - 34, x = Q.x + 6, w = 18, h = bottom - top;
+  if (h < 40) return;
+  const D = Math.min(1, shownD);
+  ctx.fillStyle = pal.empty;
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, top, w, h, 4) : ctx.rect(x, top, w, h); ctx.fill();
+  ctx.fillStyle = lab.broken && shownD >= 0.999 ? pal.hot : pal.cycle;
+  if (D > 0) ctx.fillRect(x, bottom - D * h, w, D * h);
+  ctx.font = FONT(500, 10); ctx.fillStyle = pal.muted; ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  for (const v of [0, 0.5, 1]) {
+    const ty = Math.round(bottom - v * h) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x + w, ty); ctx.lineTo(x + w + 4, ty); ctx.stroke();
+    ctx.fillText(String(v), x + w + 7, ty);
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.font = FONT(600, 10); ctx.fillText('DAMAGE', Q.x + Q.w / 2, top - 24);
+  ctx.font = FONT(700, 13); ctx.fillStyle = lab.broken ? rgba(pal.warm, 1) : pal.ink;
+  ctx.fillText(lab.D >= 1 ? '1' : lab.D < 0.001 && lab.D > 0 ? sci(lab.D, 2) : lab.D.toFixed(3), Q.x + Q.w / 2, top - 6);
+  if (lab.broken) {
+    ctx.font = FONT(700, 10); ctx.fillStyle = rgba(pal.warm, 1); ctx.textBaseline = 'top';
+    ctx.fillText('broken', Q.x + Q.w / 2, bottom + 6);
+  }
+}
+
+let shownD = 0;
+function render() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  drawRecord();
+  drawHist();
+  drawSN();
+  drawBar();
+}
+
+/* ------------------------------------------------------------- controls */
+
+const $ = (id) => document.getElementById(id);
+const ui = {
+  sines: $('src-sines'), sea: $('src-sea'), sinesCtl: $('sines-ctl'), seaCtl: $('sea-ctl'),
+  s1: $('s1'), s2: $('s2'), r: $('r'), sd: $('sd'), newsea: $('newsea'),
+  peaks: $('peaks'), step: $('step'), play: $('play'), all: $('all'), result: $('result'),
+  k: $('k'), send: $('send'), reset: $('reset'),
+};
+ui.k.max = String(KS.length - 1);
+let playing = false, nextPlay = 0;
+const PLAY_EVERY = 0.33;
+
+function setPlaying(on) { playing = on; ui.play.setAttribute('aria-pressed', String(on)); ui.play.textContent = on ? 'Pause' : 'Play'; }
+
+/** Where a swing's middle is on screen, for the flight into the histogram. */
+function swingMiddle(e) {
+  const P = lay.rec, inner = { l: P.x + 48, r: P.x + P.w - 14, t: P.y + 30, b: P.y + P.h - 32 };
+  const R = recordRange(), mid = (inner.t + inner.b) / 2, half = (inner.b - inner.t) / 2;
+  const x = (pointX(e.b, inner, 1) + pointX(e.c, inner, 1)) / 2;
+  const y = mid - (lab.points[e.b].s + lab.points[e.c].s) / 2 / R * half;
+  return { x, y };
+}
+
+function collapse() {
+  if (lab.collapsed) return false;
+  lab.collapsed = true;
+  collapseAt = now;
+  return true;
+}
+
+function doStep() {
+  if (collapse()) return;                            // the first press only collapses
+  if (now - collapseAt < COLLAPSE_S) return;
+  const before = lab.events[lab.applied];
+  if (!before) { setPlaying(false); return; }
+  const from = swingMiddle(before);
+  const e = stepCount();
+  flights.push({ e, at: now, from });
+  if (flights.length > 12) flights.shift();
+}
+
+function rebuild() {
+  setPlaying(false);
+  buildRecord();
+  flights = [];
+  sync();
+}
+
+function sync() {
+  ui.sines.setAttribute('aria-pressed', String(lab.source === 'sines'));
+  ui.sea.setAttribute('aria-pressed', String(lab.source === 'sea'));
+  ui.sinesCtl.hidden = lab.source !== 'sines';
+  ui.seaCtl.hidden = lab.source !== 'sea';
+  $('s1-out').textContent = `${lab.s1} MPa`;
+  $('s2-out').textContent = `${lab.s2} MPa`;
+  $('r-out').textContent = `× ${lab.r}`;
+  $('sd-out').textContent = `${lab.sd} MPa`;
+  $('k-out').textContent = whole(KS[Number(ui.k.value)]);
+  const done = counted();
+  ui.peaks.disabled = lab.collapsed;
+  ui.step.disabled = done;
+  ui.play.disabled = done;
+  ui.all.disabled = done;
+  ui.send.disabled = !done || !!lab.broken;
+
+  const full = lab.events.slice(0, lab.applied).filter((e) => e.kind === 'cycle').length;
+  const halfN = lab.events.slice(0, lab.applied).filter((e) => e.kind === 'half').length;
+  let html;
+  if (!lab.collapsed) html = `${lab.points.length} turning points. Press <b>Peaks</b>, then <b>Step</b>.`;
+  else if (!done) html = `Counted <b>${full}</b> cycle${full === 1 ? '' : 's'}${halfN ? ` + <b>${halfN}</b> half` : ''} so far.`;
+  else {
+    const Dr = recordDamage();
+    html = `<b>${full}</b> cycles + <b>${halfN}</b> halves. D per record <b>${sci(Dr)}</b>.`;
+    if (lab.source === 'sines') {
+      const Ds = perSineDamage();
+      html += `<br>Counted per sine: <b>${sci(Ds)}</b> · rainflow: <b class="big">${sci(Dr)}</b> (× ${(Dr / Ds).toFixed(2)})`;
+    }
+  }
+  if (lab.broken) html += `<br><b class="big">Broke after ${whole(lab.broken.take)} of ${whole(lab.broken.k)} records.</b>`;
+  if (html !== lastResult) { ui.result.innerHTML = html; lastResult = html; }
+}
+let lastResult = '';
+
+ui.sines.addEventListener('click', () => { lab.source = 'sines'; rebuild(); });
+ui.sea.addEventListener('click', () => { lab.source = 'sea'; rebuild(); });
+for (const id of ['s1', 's2', 'r', 'sd']) ui[id].addEventListener('input', () => { lab[id] = Number(ui[id].value); rebuild(); });
+ui.newsea.addEventListener('click', () => { lab.seed = (lab.seed * 48271 + 11) % 2147483647; rebuild(); });
+ui.peaks.addEventListener('click', () => { collapse(); sync(); });
+ui.step.addEventListener('click', () => { setPlaying(false); doStep(); sync(); });
+ui.play.addEventListener('click', () => {
+  if (playing) { setPlaying(false); return; }
+  setPlaying(true);
+  collapse();
+  nextPlay = Math.max(now, collapseAt + COLLAPSE_S);
+});
+ui.all.addEventListener('click', () => {
+  setPlaying(false);
+  collapse();
+  while (stepCount());
+  flights = [];
+  sync();
+});
+ui.k.addEventListener('input', sync);
+ui.send.addEventListener('click', () => { sendRecords(KS[Number(ui.k.value)]); sync(); });
+ui.reset.addEventListener('click', () => { resetDamage(); shownD = 0; sync(); });
+
+/* ----------------------------------------------------------------- loop */
+
+let last = performance.now();
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000);
+  last = t;
+  now += dt;
+  if (playing && now >= nextPlay) {
+    doStep();
+    nextPlay = now + PLAY_EVERY;
+    if (counted()) setPlaying(false);
+    sync();
+  }
+  shownD += (Math.min(1, lab.D) - shownD) * Math.min(1, dt * 6);
+  if (Math.abs(shownD - lab.D) < 1e-4) shownD = Math.min(1, lab.D);
+  render();
+  requestAnimationFrame(frame);
+}
+
+buildRecord();
+sync();
+new ResizeObserver(resize).observe(cv);
+new ResizeObserver(layout).observe(controls);
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

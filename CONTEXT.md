@@ -170,6 +170,32 @@ _Avoid_: fatigue, usage, life consumed
 n cycles at one **Stress amplitude**, sent to the **Hot spot** together. Blocks queue and play in the order they were sent. Each one adds n/N to the **Damage**, whatever came before it.
 _Avoid_: load case, batch, signal, sine
 
+### Rainflow lab
+
+**Rainflow lab**:
+A stress **Record** is counted into cycles by rainflow, the cycles are binned by **Stress amplitude**, and k repetitions of the **Record** are sent to the **S-N curve** to fill the **Damage**. It is the **Fatigue lab** for a signal that is not one sine.
+_Avoid_: cycle counting applet, spectral fatigue (that is a different method)
+
+**Record**:
+One stretch of stress history at the **Hot spot**: one period of **Two sines**, or about forty turning points of a **Sea**. It is counted once, then repeated k times.
+_Avoid_: signal, time series, load history
+
+**Two sines**:
+A big slow sine of amplitude σ₁ plus a small fast one of amplitude σ₂, at a whole-number frequency ratio. Counted per sine it gives one σ₁ cycle and f₂/f₁ σ₂ cycles; rainflow finds one cycle of about σ₁ + σ₂ instead, which neither sine has on its own.
+_Avoid_: superposition, beat
+
+**Turning point**:
+A peak or a valley of the **Record**. Rainflow sees only their order and values, never the time between them.
+_Avoid_: reversal (fine in a lecture), extremum
+
+**Pinch**:
+One step of the count: four turning points A B C D in a row, where the swing B–C fits inside both A–B and C–D. B–C is a full cycle; it is taken out, and A joins D.
+_Avoid_: extraction, loop closing (the hysteresis picture this lab does not draw)
+
+**Residue**:
+The turning points left when nothing more can be pinched. Each swing between two of them counts as half a cycle.
+_Avoid_: remainder, leftovers
+
 ## Relationships
 
 - A **Tap** or **Shake** acts at one height; the **Probe** reads at another (or the same).
@@ -179,6 +205,7 @@ _Avoid_: load case, batch, signal, sine
 - Under **Frozen turbulence** U sets only how fast the **Wind field** passes and where the **Kaimal spectrum** sits in frequency, never the field's shape in space.
 - A **Release** in exactly one **Mode**'s shape stays in that shape; any other **Release** is a mix of both.
 - **Blocks** at the same **Stress amplitude** add into one count; the **Damage** they cause together does not depend on the order they came in.
+- A **Record** counted by rainflow loses no swing: every **Pinch** and every half-cycle of the **Residue** together account for its whole path from turning point to turning point.
 - A heavier **Nacelle** lowers every natural frequency and moves the top of the **Pile** towards being a node of the second **Mode**.
 
 ## Flagged ambiguities

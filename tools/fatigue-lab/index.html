@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fatigue lab</title>
+<style>
+  :root {
+    --ground-hi: #eef1f7; --ground-mid: #e5eaf3; --ground-lo: #d9dfeb;
+    --glass: rgba(255,255,255,.78); --glass-edge: rgba(15,23,42,.10);
+    --ink: #0f172a; --soft: #475569; --muted: #8a94a2;
+    --accent: #2563eb; --warm: #ea580c; --sky: rgba(255,255,255,.55);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground-hi: #1a1f29; --ground-mid: #141922; --ground-lo: #0e1219;
+      --glass: rgba(30,36,48,.80); --glass-edge: rgba(226,232,240,.10);
+      --ink: #e2e8f0; --soft: #c3cbd6; --muted: #8b95a5;
+      --accent: #60a5fa; --warm: #fb923c; --sky: rgba(148,163,184,.08);
+    }
+  }
+  html, body { margin: 0; height: 100%; width: 100%; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(120% 85% at 50% -8%, var(--sky), rgba(255,255,255,0) 58%),
+      radial-gradient(140% 120% at 50% 50%, rgba(15,23,42,0) 55%, rgba(15,23,42,.07) 100%),
+      linear-gradient(180deg, var(--ground-hi) 0%, var(--ground-mid) 46%, var(--ground-lo) 100%);
+    background-color: var(--ground-mid);
+    font: 500 13px/1.35 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--ink);
+    -webkit-text-size-adjust: 100%;
+  }
+  canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+
+  .glass {
+    background: var(--glass); border: 1px solid var(--glass-edge);
+    border-radius: 11px; box-shadow: 0 1px 3px rgba(15,23,42,.08);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  #controls {
+    position: fixed; top: 12px; left: 12px; z-index: 2; padding: 9px 12px 10px;
+    box-sizing: border-box; width: min(400px, calc(100vw - 24px));
+  }
+  .row { display: grid; grid-template-columns: 92px 1fr 92px; align-items: center; gap: 8px; margin: 2px 0; }
+  .row label { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--soft); }
+  .row output { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; margin: 0; accent-color: var(--accent); }
+  .buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 7px; }
+  button {
+    height: 32px; padding: 0 14px; cursor: pointer;
+    font: 600 12px/1 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--soft); letter-spacing: .03em;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:hover, button:focus-visible { color: var(--ink); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: default; color: var(--soft); }
+  /* Send is the press the whole lab turns on: make it the one that stands out. */
+  #send:not(:disabled) { color: #fff; background: var(--accent); border-color: transparent; }
+  #queue { margin-top: 7px; font-size: 12px; color: var(--soft); min-height: 16px; }
+
+  #answer { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--glass-edge); }
+  #answer p { margin: 3px 0; }
+  #answer .eq { font: 500 13px/1.5 "Cambria Math", "STIX Two Math", Georgia, serif; }
+  #answer b { font-variant-numeric: tabular-nums; }
+  #answer .bad { color: var(--warm); font-weight: 700; }
+
+  #hint {
+    position: fixed; z-index: 1; text-align: left;
+    font: 500 clamp(10px, 1.2vw, 13px)/1.4 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    letter-spacing: .02em; color: var(--muted); pointer-events: none;
+    opacity: 0; transition: opacity .7s ease; user-select: none;
+  }
+  #hint.show { opacity: 1; }
+  #hint b { font-weight: 700; color: var(--soft); }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="A wind turbine pile taking stress cycles at a welded hot spot by the mudline. A damage bar fills by the Palmgren-Miner rule, and the cycles build up as bars on the S-N curve."></canvas>
+
+<div id="controls" class="glass">
+  <div class="row">
+    <label for="ds">Stress range</label>
+    <input id="ds" type="range" min="20" max="300" step="5" value="100">
+    <output id="ds-out" for="ds"></output>
+  </div>
+  <div class="row">
+    <label for="n">Cycles</label>
+    <input id="n" type="range" min="0" max="15" step="1" value="9">
+    <output id="n-out" for="n"></output>
+  </div>
+  <div class="buttons">
+    <button id="send" class="glass" type="button">Send</button>
+    <button id="reset" class="glass" type="button">Reset</button>
+    <button id="show" class="glass" type="button" aria-expanded="false" aria-controls="answer">Show the answer</button>
+  </div>
+  <div id="queue" aria-live="polite"></div>
+  <div id="answer" hidden>
+    <p class="eq" id="a-n"></p>
+    <p class="eq" id="a-d"></p>
+    <p id="a-after"></p>
+  </div>
+</div>
+
+<div id="hint">Set a <b>stress range</b> and a number of <b>cycles</b><br>press <b>Send</b> · break it at D = 1</div>
+
+<script>
+/* ---------------------------------------------------------------- physics
+ *
+ * The S-N curve is a DNV-RP-C203 D-curve in air, bilinear:
+ *
+ *     log N = log a1 - m1 log(ds)    for N up to 1e7 (m1 = 3)
+ *     log N = log a2 - m2 log(ds)    beyond, below the knee (m2 = 5)
+ *
+ * with ds the stress range in MPa. No cutoff: below the knee cycles still do
+ * damage, just much less.
+ *
+ * Damage is the Palmgren-Miner sum D = sum n_i / N_i over every stress range
+ * the hot spot has taken, and the pile fails at D = 1. Cycles at the same
+ * stress range simply add, so the order of the Blocks never matters.
+ *
+ * verify.mjs slices this section and the state after it out, from this first
+ * line to the "rendering" banner, to play Blocks without a page. Keep both
+ * markers, and keep the state free of the DOM.
+ */
+const SN = { m1: 3, logA1: 12.164, m2: 5, logA2: 15.606, nKnee: 1e7 };
+/** The stress range at the knee, where the slope changes: about 52.6 MPa. */
+const KNEE = 10 ** ((SN.logA1 - Math.log10(SN.nKnee)) / SN.m1);
+
+/** Cycles to failure N at a constant stress range ds (MPa). */
+function cyclesToFailure(ds) {
+  const l = Math.log10(ds);
+  return ds >= KNEE ? 10 ** (SN.logA1 - SN.m1 * l) : 10 ** (SN.logA2 - SN.m2 * l);
+}
+
+/** Cycles taken so far, per stress range, and the Miner sum over them. */
+function createLedger() {
+  const counts = new Map();                         // ds -> cycles, in the order first taken
+  return {
+    get counts() { return counts; },
+    damage() {
+      let D = 0;
+      for (const [ds, n] of counts) D += n / cyclesToFailure(ds);
+      return D;
+    },
+    clear() { counts.clear(); },
+    add(ds, n) { counts.set(ds, (counts.get(ds) || 0) + n); },
+  };
+}
+
+/**
+ * Put n more cycles at ds into the ledger. If they would take D past 1, only
+ * the cycles that bring it to exactly 1 are taken, and the hot spot breaks.
+ */
+function take(ledger, ds, n) {
+  const room = (1 - ledger.damage()) * cyclesToFailure(ds);
+  if (n < room) { ledger.add(ds, n); return { taken: n, broke: false }; }
+  ledger.add(ds, Math.max(0, room));
+  return { taken: Math.max(0, room), broke: true };
+}
+
+/**
+ * How long a Block plays on screen, in seconds: longer for more cycles, on a
+ * log scale, from 1.5 s for 10^3 cycles to 6 s for 10^8.
+ */
+function blockSeconds(n) {
+  return Math.max(1.5, Math.min(6, 1.5 + 0.9 * Math.log10(n / 1e3)));
+}
+
+/* --------------------------------------------------------------- state */
+
+/** The cycle counts the slider steps through: 1, 2 and 5 x 10^k. */
+const NS = [];
+for (let k = 3; k <= 8; k++) for (const f of [1, 2, 5]) if (f * 10 ** k <= 1e8) NS.push(f * 10 ** k);
+
+const LANE_S = 1.6;                                  // seconds of signal the lane shows
+const GAP_S = 0.35;                                  // a pause between two Blocks
+const SWING_HZ = 1.6;                                // drawn swings per second
+const SIGMA_MAX = 160;                               // MPa at the edge of the lane
+
+const ledger = createLedger();
+/** Blocks sent and not yet fully taken, in order. Times are on `clock`. */
+let blocks = [];
+let clock = 0;
+/** Set when the pile breaks: where, when, and on which Block. */
+let broken = null;
+
+/**
+ * Colours belong to stress ranges, not Blocks: two Blocks at the same range add
+ * into one bar on the S-N plot, and one bar cannot carry two colours. Slots are
+ * handed out in a fixed order as ranges are first sent; a ninth range and
+ * beyond share a neutral "other" colour.
+ */
+const SLOTS = 8;
+const slotOf = new Map();                            // ds -> slot index
+
+function send(ds, n) {
+  if (broken) return;
+  if (!slotOf.has(ds)) slotOf.set(ds, slotOf.size);
+  const last = blocks[blocks.length - 1];
+  const T = blockSeconds(n);
+  const start = Math.max(clock + LANE_S, last ? last.start + last.T + GAP_S : 0);
+  blocks.push({ ds, n, start, T, swings: Math.max(2, Math.round(T * SWING_HZ)), taken: 0 });
+}
+
+function reset() {
+  ledger.clear();
+  blocks = [];
+  broken = null;
+  slotOf.clear();
+}
+
+/** Advance the clock: whatever part of a Block has reached the hot spot is taken. */
+function advance(dt) {
+  clock += dt;
+  if (broken) return;
+  while (blocks.length && blocks[0].start <= clock) {
+    const b = blocks[0];
+    const p = Math.min(1, (clock - b.start) / b.T);
+    const due = p >= 1 ? b.n : b.n * p;
+    const inc = due - b.taken;
+    if (inc > 0) {
+      const r = take(ledger, b.ds, inc);
+      b.taken += r.taken;
+      if (r.broke) {
+        broken = { at: clock, ds: b.ds, n: b.n, cycle: Math.ceil(b.taken - 1e-6) };
+        blocks = [];
+        return;
+      }
+    }
+    if (p < 1) break;
+    blocks.shift();
+  }
+}
+
+/** The stress at the hot spot, signal time tau from now on the clock. */
+function sigmaAt(tau) {
+  for (const b of blocks) {
+    if (tau < b.start) return 0;
+    if (tau < b.start + b.T) return (b.ds / 2) * Math.sin(2 * Math.PI * b.swings * (tau - b.start) / b.T);
+  }
+  return 0;
+}
+
+/* ------------------------------------------------------------ rendering */
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1, lay = null;
+
+function readPalette() {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  return dark ? {
+    column: '#cbd5e1', columnLo: '#64748b', shadow: 'rgba(0,0,0,0.35)', seam: 'rgba(255,255,255,0.18)',
+    ink: '#e2e8f0', soft: '#c3cbd6', muted: 'rgba(148,163,184,0.85)', rule: 'rgba(148,163,184,0.30)',
+    soil: '71,85,105', bodyHi: '#e2e8f0', bodyLo: '#64748b', crack: '251,146,60', curve: '#e2e8f0',
+    panel: 'rgba(30,36,48,0.72)', surface: '#141922', empty: 'rgba(148,163,184,0.16)',
+    series: ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'], other: '#8b95a5',
+  } : {
+    column: '#1f2937', columnLo: '#6b7280', shadow: 'rgba(15,23,42,0.16)', seam: 'rgba(255,255,255,0.30)',
+    ink: '#0f172a', soft: '#475569', muted: 'rgba(71,85,105,0.9)', rule: 'rgba(100,116,139,0.32)',
+    soil: '100,116,139', bodyHi: '#64748b', bodyLo: '#1e293b', crack: '234,88,12', curve: '#0f172a',
+    panel: 'rgba(255,255,255,0.72)', surface: '#e5eaf3', empty: 'rgba(100,116,139,0.14)',
+    series: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'], other: '#8a94a2',
+  };
+}
+let pal = readPalette();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { pal = readPalette(); });
+const rgba = (c, a) => `rgba(${c},${a.toFixed(3)})`;
+const FONT = (w, s) => `${w} ${s}px system-ui,-apple-system,"Segoe UI",Arial,sans-serif`;
+const colourOf = (ds) => {
+  const s = slotOf.get(ds);
+  return s === undefined || s >= SLOTS ? pal.other : pal.series[s];
+};
+
+const SUP = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
+const pow10 = (k) => '10' + String(k).split('').map((c) => SUP[c]).join('');
+/** 1460000 -> "1.46·10⁶"; exact powers of ten as "10⁶". */
+function sci(x, digits = 3) {
+  if (!(x > 0)) return '0';
+  let k = Math.floor(Math.log10(x));
+  let m = Number((x / 10 ** k).toPrecision(digits));
+  if (m >= 10) { m /= 10; k += 1; }
+  return m === 1 ? pow10(k) : `${m}·${pow10(k)}`;
+}
+/** A whole number with thin spaces between thousands: 1 000 000. */
+const whole = (x) => Math.round(x).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+/** A count to two significant figures, for "each swing stands for". */
+const roughly = (x) => whole(Number(x.toPrecision(2)));
+const dfmt = (D) => D.toFixed(D < 0.01 && D > 0 ? 4 : 3);
+
+const controls = document.getElementById('controls');
+const hint = document.getElementById('hint');
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = cv.clientWidth; H = cv.clientHeight;
+  const bw = Math.round(W * DPR), bh = Math.round(H * DPR);
+  if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+  layout();
+}
+
+/**
+ * Where everything sits. Wide: the structure under the controls on the left,
+ * the S-N plot down the right. Narrow: controls, structure, plot, stacked.
+ */
+function layout() {
+  const wide = W >= 760 && W / H > 1.05;
+  const split = Math.round(W * 0.55);
+  controls.style.width = wide ? `${Math.min(400, split - 24)}px` : '';
+  const c = controls.getBoundingClientRect();
+  let stage, plot;
+  if (wide) {
+    stage = { x: 12, y: c.bottom + 8, w: split - 20, h: H - c.bottom - 18 };
+    plot = { x: split + 4, y: 12, w: W - split - 16, h: H - 24 };
+  } else {
+    const top = c.bottom + 8, rest = H - top - 10;
+    const sh = Math.round(rest * 0.52);
+    stage = { x: 8, y: top, w: W - 16, h: sh };
+    plot = { x: 8, y: top + sh + 6, w: W - 16, h: rest - sh - 6 };
+  }
+
+  // Inside the stage: the lane on the left, the pile, the damage bar on the right.
+  const barW = 18;
+  const barX = stage.x + stage.w - 58;
+  // The lane sits on the hot spot's level, so the mudline is lifted to leave
+  // room for its lower half and the line of text under it.
+  const laneHalf = Math.max(24, Math.min(90, stage.h * 0.17));
+  const mudY = stage.y + stage.h - laneHalf - 24;
+  const pileTop = stage.y + 44;
+  const pileH = Math.max(40, mudY - pileTop);
+  const pileX = stage.x + 44 + (barX - 70 - stage.x - 44) * (wide ? 0.74 : 0.7);
+  const pileW = Math.max(8, Math.min(24, pileH * 0.075));
+  const laneL = stage.x + 44, laneR = pileX - pileW / 2 - 4;
+  lay = { wide, stage, plot, barW, barX, barTop: stage.y + 44, mudY, pileTop, pileH, pileX, pileW, laneHalf, laneL, laneR };
+
+  // The hint sits in the empty top left of the stage, clear of the pile.
+  hint.style.left = `${stage.x + 6}px`;
+  hint.style.top = `${stage.y + 6}px`;
+  hint.style.maxWidth = `${Math.max(120, pileX - pileW - stage.x - 60)}px`;
+}
+
+/* ---- the lane: stress arriving at the hot spot ---- */
+
+function drawLane() {
+  const { laneL, laneR, laneHalf, mudY } = lay;
+  const cy = mudY, w = laneR - laneL;
+  if (w < 40) return;
+  const yOf = (s) => cy - (s / SIGMA_MAX) * laneHalf;
+
+  // Axes: sigma in MPa, zero on the hot spot's level.
+  ctx.font = FONT(500, 10); ctx.strokeStyle = pal.rule; ctx.lineWidth = 1; ctx.fillStyle = pal.muted;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const s of [-150, -75, 0, 75, 150]) {
+    const y = Math.round(yOf(s)) + 0.5;
+    ctx.globalAlpha = s === 0 ? 1 : 0.45;
+    ctx.beginPath(); ctx.moveTo(laneL, y); ctx.lineTo(laneR, y); ctx.stroke();
+    ctx.globalAlpha = 1;
+    if (s % 150 === 0) ctx.fillText(s === 0 ? '0' : (s < 0 ? '−' : '') + Math.abs(s), laneL - 5, y);
+  }
+  ctx.save();
+  ctx.translate(lay.stage.x + 9, cy); ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center'; ctx.fillText('σ (MPa)', 0, 0);
+  ctx.restore();
+  ctx.font = FONT(600, 10); ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  const title = 'STRESS ARRIVING AT THE HOT SPOT';
+  ctx.fillText(ctx.measureText(title).width < w - 10 ? title : 'STRESS ARRIVING', laneL, yOf(SIGMA_MAX) - 18);
+
+  // The signal, one path per Block, coloured by its stress range.
+  const tauOf = (x) => clock + (laneR - x) / w * LANE_S;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(laneL, cy - laneHalf - 4, w, 2 * laneHalf + 8); ctx.clip();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (const b of blocks) {
+    const xs = Math.max(laneL, laneR - (b.start + b.T - clock) / LANE_S * w);
+    const xe = Math.min(laneR, laneR - (b.start - clock) / LANE_S * w);
+    if (xe <= xs) continue;
+    ctx.beginPath();
+    for (let x = xs; x <= xe + 0.01; x += 1.5) {
+      const y = yOf(sigmaAt(Math.min(b.start + b.T - 1e-6, Math.max(b.start, tauOf(x)))));
+      if (x === xs) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = colourOf(b.ds); ctx.lineWidth = 2.2; ctx.stroke();
+  }
+  ctx.restore();
+
+  // A label over each Block in view: what it is, and what one swing stands for.
+  ctx.textBaseline = 'bottom';
+  let freeFrom = laneL;
+  for (const b of blocks) {
+    const xs = Math.max(laneL, laneR - (b.start + b.T - clock) / LANE_S * w);
+    const xe = Math.min(laneR, laneR - (b.start - clock) / LANE_S * w);
+    if (xe - xs < 30) continue;
+    const x = Math.max(xs + 2, freeFrom);
+    const top = `${b.ds} MPa × ${sci(b.n)}`, sub = `each swing ≈ ${roughly(b.n / b.swings)} cycles`;
+    ctx.font = FONT(700, 11); const tw = ctx.measureText(top).width;
+    ctx.font = FONT(500, 10); const sw = ctx.measureText(sub).width;
+    if (x + Math.max(tw, sw) > laneR + 30) continue;
+    ctx.fillStyle = colourOf(b.ds);
+    ctx.fillRect(x, yOf(SIGMA_MAX) - 14, 8, 8);
+    ctx.font = FONT(700, 11); ctx.fillStyle = pal.ink; ctx.textAlign = 'left';
+    ctx.fillText(top, x + 12, yOf(SIGMA_MAX) - 4);
+    ctx.font = FONT(500, 10); ctx.fillStyle = pal.muted; ctx.textBaseline = 'top';
+    ctx.fillText(sub, x, cy + laneHalf + 6);
+    ctx.textBaseline = 'bottom';
+    freeFrom = x + Math.max(tw + 12, sw) + 14;
+  }
+  if (!blocks.length && !broken) {
+    ctx.font = FONT(500, 11); ctx.fillStyle = pal.muted; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('nothing on the way', laneL, cy + laneHalf + 6);
+  }
+  // The arrow into the hot spot.
+  ctx.fillStyle = pal.muted;
+  ctx.beginPath(); ctx.moveTo(laneR + 3, cy); ctx.lineTo(laneR - 5, cy - 5); ctx.lineTo(laneR - 5, cy + 5); ctx.closePath(); ctx.fill();
+}
+
+/* ---- the pile ---- */
+
+/** The pile's outline, swayed by u at the top: a cantilever's static shape. */
+function pilePath(u) {
+  const { pileX, mudY, pileTop, pileW } = lay;
+  const H = mudY - pileTop, pts = 24;
+  const left = [], right = [];
+  for (let i = 0; i <= pts; i++) {
+    const s = i / pts, d = u * s * s * (3 - s) / 2, half = pileW / 2 * (1 - 0.38 * s);
+    const y = mudY - s * H;
+    left.push([pileX + d - half, y]); right.push([pileX + d + half, y]);
+  }
+  ctx.beginPath();
+  left.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
+  ctx.closePath();
+}
+
+function drawNacelle(x, y, w) {
+  const h = w * 0.42;
+  ctx.save();
+  ctx.translate(x, y - h * 0.5);
+  const g = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+  g.addColorStop(0, pal.bodyHi); g.addColorStop(1, pal.bodyLo);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(-w / 2, -h / 2, w, h, h * 0.42); else ctx.rect(-w / 2, -h / 2, w, h);
+  ctx.fill();
+  ctx.beginPath(); ctx.ellipse(-w / 2, 0, h * 0.34, h * 0.42, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = pal.seam;
+  ctx.beginPath(); ctx.ellipse(-w * 0.1, -h * 0.26, w * 0.3, h * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+/** The crack across the hot spot, from the left wall, as long as D says. */
+function crackPath(D, x0, y, width) {
+  const steps = 9, len = Math.min(1, D) * width;
+  ctx.beginPath(); ctx.moveTo(x0, y);
+  for (let i = 1; i <= steps; i++) {
+    const f = i / steps;
+    if (f * width > len) { ctx.lineTo(x0 + len, y + (i % 2 ? -1 : 1) * 1.2); break; }
+    ctx.lineTo(x0 + f * width, y + (i % 2 ? -1.6 : 1.6));
+  }
+}
+
+/** The seabed around the pile, and the pile running on into it. Drawn under the lane. */
+function drawSoil() {
+  const { pileX, mudY, pileW, stage, barX } = lay;
+  const l = pileX - pileW * 2.5, r = barX - 10;
+  const g = ctx.createLinearGradient(0, mudY, 0, stage.y + stage.h);
+  g.addColorStop(0, rgba(pal.soil, 0.24)); g.addColorStop(1, rgba(pal.soil, 0));
+  ctx.fillStyle = g;
+  ctx.fillRect(l, mudY, r - l, stage.y + stage.h - mudY);
+  ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(l, mudY + 0.5); ctx.lineTo(r, mudY + 0.5); ctx.stroke();
+  ctx.fillStyle = pal.columnLo; ctx.globalAlpha = 0.35;
+  ctx.fillRect(pileX - pileW / 2, mudY, pileW, stage.y + stage.h - mudY - 4);
+  ctx.globalAlpha = 1;
+  ctx.font = FONT(500, 10); ctx.fillStyle = pal.muted; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+  ctx.fillText('mudline', r, mudY + 4);
+}
+
+function drawStructure() {
+  const { pileX, mudY, pileTop, pileW, stage } = lay;
+  const D = Math.min(1, ledger.damage());
+  const H = mudY - pileTop;
+
+  // Sway, in time with the stress reaching the hot spot.
+  const sway = broken ? 0 : sigmaAt(clock) / SIGMA_MAX * H * 0.06;
+
+  ctx.save();
+  if (broken) {
+    // Snapped at the mudline: everything above falls away from the bar.
+    const t = Math.min(1, (clock - broken.at) / 1.1);
+    const ang = -(Math.PI / 2) * 0.96 * t * t;
+    ctx.beginPath(); ctx.rect(stage.x, stage.y - 4, stage.w, stage.h + 4); ctx.clip();
+    ctx.translate(pileX - pileW / 2, mudY); ctx.rotate(ang); ctx.translate(-(pileX - pileW / 2), -mudY);
+  }
+  pilePath(sway);
+  ctx.fillStyle = pal.shadow; ctx.lineWidth = 3; ctx.strokeStyle = pal.shadow; ctx.stroke();
+  const grad = ctx.createLinearGradient(pileX - pileW, 0, pileX + pileW, 0);
+  grad.addColorStop(0, pal.column); grad.addColorStop(1, pal.columnLo);
+  ctx.fillStyle = grad; ctx.fill();
+  drawNacelle(pileX + sway, pileTop, Math.max(30, Math.min(64, H * 0.2)));
+  ctx.restore();
+
+  // The hot spot: a weld seam, a glow as damage builds, and the crack.
+  const hx = pileX - pileW / 2, hy = mudY - 2;
+  if (D > 0) {
+    const r = pileW * (1.2 + 1.8 * D);
+    const glow = ctx.createRadialGradient(pileX, hy, 0, pileX, hy, r);
+    glow.addColorStop(0, rgba(pal.crack, 0.15 + 0.45 * D)); glow.addColorStop(1, rgba(pal.crack, 0));
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(pileX, hy, r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.strokeStyle = pal.seam; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(hx + pileW, hy); ctx.stroke();
+  if (D > 0.002) {
+    crackPath(D, hx, hy, pileW);
+    ctx.strokeStyle = rgba(pal.crack, 1); ctx.lineWidth = 2; ctx.lineJoin = 'miter'; ctx.stroke();
+  }
+  ctx.font = FONT(600, 11); ctx.fillStyle = rgba(pal.crack, 1); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('hot spot', pileX + pileW / 2 + 6, mudY + 4);
+
+  // Height in metres beside the pile, mudline at 0.
+  if (!broken) {
+    const ax = pileX + pileW / 2 + 22;
+    ctx.font = FONT(500, 10); ctx.fillStyle = pal.muted; ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.beginPath(); ctx.moveTo(ax + 0.5, mudY - 14); ctx.lineTo(ax + 0.5, pileTop + 14); ctx.stroke();
+    for (const m of [25, 50, 75, 100]) {
+      const y = Math.round(mudY - m / 100 * H) + 0.5;
+      if (y < pileTop + 10) continue;
+      ctx.beginPath(); ctx.moveTo(ax - 3, y); ctx.lineTo(ax + 3, y); ctx.stroke();
+      ctx.fillText(`${m} m`, ax + 6, y);
+    }
+  }
+
+  if (broken) {
+    const msg = `Broke after ${whole(broken.cycle)} of ${whole(broken.n)} cycles at ${broken.ds} MPa`;
+    ctx.font = FONT(700, 13);
+    const tw = ctx.measureText(msg).width, cx = stage.x + Math.min(stage.w * 0.42, (lay.barX - stage.x) / 2);
+    const lines = tw + 24 > lay.barX - stage.x - 80 ? [`Broke after ${whole(broken.cycle)}`, `of ${whole(broken.n)} cycles at ${broken.ds} MPa`] : [msg];
+    const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 24, bh = 14 + lines.length * 18;
+    const bx = Math.max(stage.x, Math.min(cx - bw / 2, lay.barX - 76 - bw)), by = stage.y + 6;
+    ctx.fillStyle = pal.panel; ctx.strokeStyle = rgba(pal.crack, 0.9); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, bw, bh, 9) : ctx.rect(bx, by, bw, bh); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = rgba(pal.crack, 1); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    lines.forEach((l, i) => ctx.fillText(l, bx + bw / 2, by + 8 + i * 18));
+  }
+}
+
+/* ---- the damage bar ---- */
+
+function drawDamageBar() {
+  const { barX, barW, barTop, mudY } = lay;
+  const bottom = mudY, h = bottom - barTop;
+  if (h < 40) return;
+  const D = ledger.damage();
+
+  ctx.fillStyle = pal.empty;
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(barX, barTop, barW, h, 4) : ctx.rect(barX, barTop, barW, h); ctx.fill();
+
+  // Stacked by stress range, in the order their colours were handed out, with
+  // a 2 px gap between segments so neighbours never merge.
+  const order = [...ledger.counts.keys()].sort((a, b) => slotOf.get(a) - slotOf.get(b));
+  let y = bottom;
+  for (const ds of order) {
+    const d = ledger.counts.get(ds) / cyclesToFailure(ds);
+    const sh = Math.min(d, 1) * h;
+    if (sh <= 0) continue;
+    const top = Math.max(barTop, y - sh);
+    ctx.fillStyle = colourOf(ds);
+    ctx.fillRect(barX, top, barW, Math.max(0.5, y - top - (y - top > 3 ? 2 : 0)));
+    y = top;
+  }
+
+  ctx.font = FONT(500, 10); ctx.fillStyle = pal.muted; ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+    const ty = Math.round(bottom - v * h) + 0.5;
+    ctx.beginPath(); ctx.moveTo(barX + barW, ty); ctx.lineTo(barX + barW + 4, ty); ctx.stroke();
+    ctx.fillText(v === 1 ? '1' : String(v), barX + barW + 7, ty);
+  }
+  ctx.strokeStyle = rgba(pal.crack, 0.9); ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(barX - 6, barTop + 0.5); ctx.lineTo(barX + barW + 4, barTop + 0.5); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+  ctx.font = FONT(600, 10); ctx.fillStyle = pal.muted;
+  ctx.fillText('DAMAGE  D = Σ nᵢ/Nᵢ', barX + barW + 26, barTop - 22);
+  ctx.font = FONT(700, 15); ctx.fillStyle = D >= 1 - 1e-9 ? rgba(pal.crack, 1) : pal.ink;
+  ctx.fillText(`D = ${dfmt(Math.min(1, D))}`, barX + barW + 26, barTop - 5);
+}
+
+/* ---- the S-N plot ---- */
+
+const N_LO = 1e3, N_HI = 1e9, S_LO = 10, S_HI = 500;
+
+function drawSN() {
+  const P = lay.plot;
+  const left = P.x + 50, right = P.x + P.w - 12, top = P.y + 30, bottom = P.y + P.h - 34;
+  if (right - left < 80 || bottom - top < 60) return;
+  const xOf = (n) => left + (Math.log10(n) - 3) / (Math.log10(N_HI) - 3) * (right - left);
+  const yOf = (s) => bottom - (Math.log10(s) - Math.log10(S_LO)) / (Math.log10(S_HI) - Math.log10(S_LO)) * (bottom - top);
+
+  ctx.fillStyle = pal.panel; ctx.strokeStyle = pal.rule; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(P.x, P.y, P.w, P.h, 11) : ctx.rect(P.x, P.y, P.w, P.h); ctx.fill();
+
+  // Grid: decades of N across, 1-2-5 of the stress range up.
+  ctx.font = FONT(500, 10); ctx.fillStyle = pal.muted;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let k = 3; k <= 9; k++) {
+    const x = Math.round(xOf(10 ** k)) + 0.5;
+    ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.fillText(pow10(k), x, bottom + 5);
+  }
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const s of [10, 20, 50, 100, 200, 500]) {
+    const y = Math.round(yOf(s)) + 0.5;
+    ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.fillText(String(s), left - 6, y);
+  }
+  ctx.globalAlpha = 1;
+  ctx.beginPath(); ctx.moveTo(left + 0.5, top); ctx.lineTo(left + 0.5, bottom + 0.5); ctx.lineTo(right, bottom + 0.5); ctx.stroke();
+  ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+  ctx.fillText('cycles N (log scale)', right, bottom + 19);
+  ctx.save(); ctx.translate(P.x + 12, (top + bottom) / 2); ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('stress range Δσ (MPa, log scale)', 0, 0);
+  ctx.restore();
+  ctx.font = FONT(600, 10); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  const title = 'S-N CURVE (DNV D-CURVE, IN AIR) AND THE CYCLES TAKEN';
+  ctx.fillText(ctx.measureText(title).width < right - left ? title : 'S-N CURVE AND THE CYCLES TAKEN', left, P.y + 15);
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(left, top - 2, right - left, bottom - top + 4); ctx.clip();
+
+  // The histogram: one bar per stress range, out to the cycles taken there.
+  const ranges = [...ledger.counts.keys()].sort((a, b) => b - a);
+  const bh = Math.max(5, Math.min(11, (bottom - top) / 40));
+  for (const ds of ranges) {
+    const n = ledger.counts.get(ds), y = yOf(ds);
+    const x1 = xOf(Math.max(N_LO, n));
+    if (n <= 0) continue;
+    ctx.fillStyle = colourOf(ds);
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(left + 1, y - bh / 2, Math.max(2, x1 - left - 1), bh, [0, 4, 4, 0]); else ctx.rect(left + 1, y - bh / 2, Math.max(2, x1 - left - 1), bh);
+    ctx.fill();
+    // A 2 px ring in the surface colour, so overlapping bars stay apart.
+    ctx.strokeStyle = pal.surface; ctx.lineWidth = 1; ctx.stroke();
+  }
+
+  // The curve itself, with its knee.
+  ctx.strokeStyle = pal.curve; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  let first = true;
+  for (let l = Math.log10(S_LO); l <= Math.log10(S_HI) + 1e-9; l += 0.005) {
+    const s = 10 ** l, x = xOf(cyclesToFailure(s)), y = yOf(s);
+    if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  const kx = xOf(SN.nKnee), ky = yOf(KNEE);
+  ctx.fillStyle = pal.curve; ctx.beginPath(); ctx.arc(kx, ky, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  ctx.font = FONT(500, 10); ctx.fillStyle = pal.muted; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  // Below and left of the knee, the side of the curve nothing else is drawn on.
+  ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+  ctx.fillText(`knee: ${KNEE.toFixed(1)} MPa at ${pow10(7)}`, kx - 8, ky + 6);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  const s3 = 160, s5 = 30;
+  ctx.font = FONT(600, 11); ctx.fillStyle = pal.soft;
+  if (xOf(cyclesToFailure(s3)) + 46 < right) ctx.fillText('m = 3', xOf(cyclesToFailure(s3)) + 8, yOf(s3) - 3);
+  if (xOf(cyclesToFailure(s5)) + 46 < right) ctx.fillText('m = 5', xOf(cyclesToFailure(s5)) + 8, yOf(s5) - 3);
+
+  // The Block being set up: its stress range, read across to the curve.
+  const ds = currentDs(), n = currentN(), N = cyclesToFailure(ds);
+  const y = yOf(ds), xc = xOf(N), xn = xOf(n);
+  ctx.strokeStyle = pal.soft; ctx.lineWidth = 1.2; ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(Math.min(right, xc), y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(Math.min(right, xc), y); ctx.lineTo(Math.min(right, xc), bottom); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle = pal.ink; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(xn, y - 9); ctx.lineTo(xn, y + 9); ctx.stroke();
+  ctx.fillStyle = pal.ink; ctx.font = FONT(600, 10); ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText('n', xn, y - 10);
+  if (xc <= right) {
+    ctx.fillStyle = pal.panel; ctx.strokeStyle = pal.ink; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(xc, y, 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = pal.ink; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(answerOpen() ? `N = ${sci(N)}` : 'N', xc + 6, y + 3);
+  }
+
+  // Labels for the bars, nᵢ/Nᵢ, skipped where they would collide.
+  ctx.font = FONT(600, 11); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  let lastY = -Infinity;
+  for (const r of ranges.slice().sort((a, b) => yOf(a) - yOf(b))) {
+    const ly = yOf(r);
+    if (ly - lastY < 13) continue;
+    const n = ledger.counts.get(r), x1 = Math.max(left, xOf(Math.max(N_LO, n)));
+    const label = `${r} MPa · n/N = ${dfmt(n / cyclesToFailure(r))}`;
+    const tw = ctx.measureText(label).width;
+    const lx = Math.min(right - tw - 4, x1 + 6);
+    ctx.fillStyle = pal.panel; ctx.fillRect(lx - 2, ly - 7, tw + 4, 14);
+    ctx.fillStyle = pal.ink; ctx.fillText(label, lx, ly);
+    lastY = ly;
+  }
+}
+
+function render() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  drawSN();
+  drawSoil();
+  drawLane();
+  drawStructure();
+  drawDamageBar();
+}
+
+/* ------------------------------------------------------------- controls */
+
+const dsIn = document.getElementById('ds'), nIn = document.getElementById('n');
+const dsOut = document.getElementById('ds-out'), nOut = document.getElementById('n-out');
+const sendBtn = document.getElementById('send'), resetBtn = document.getElementById('reset');
+const showBtn = document.getElementById('show'), answer = document.getElementById('answer');
+const queueEl = document.getElementById('queue');
+const currentDs = () => Number(dsIn.value);
+const currentN = () => NS[Number(nIn.value)];
+const answerOpen = () => !answer.hidden;
+nIn.max = String(NS.length - 1);
+
+let hintTimer = setTimeout(() => hint.classList.add('show'), 700);
+function dismissHint() { clearTimeout(hintTimer); hint.classList.remove('show'); }
+
+function syncInputs() {
+  dsOut.textContent = `${currentDs()} MPa`;
+  nOut.textContent = whole(currentN());
+  syncAnswer();
+}
+dsIn.addEventListener('input', syncInputs);
+nIn.addEventListener('input', syncInputs);
+
+/** Damage still to come from the queue: what has been sent but not yet taken. */
+function queuedDamage() {
+  return blocks.reduce((sum, b) => sum + (b.n - b.taken) / cyclesToFailure(b.ds), 0);
+}
+
+let lastAnswer = '';
+function syncAnswer() {
+  if (answer.hidden) return;
+  const ds = currentDs(), n = currentN(), N = cyclesToFailure(ds);
+  const now = ledger.damage(), queued = now + queuedDamage(), after = queued + n / N;
+  const key = [ds, n, now.toFixed(4), queued.toFixed(4), !!broken].join();
+  if (key === lastAnswer) return;
+  lastAnswer = key;
+  document.getElementById('a-n').innerHTML =
+    `At Δσ = ${ds} MPa the curve gives N = <b>${sci(N)}</b> cycles (slope m = ${ds >= KNEE ? 3 : 5}).`;
+  document.getElementById('a-d').innerHTML =
+    `This Block adds n/N = ${sci(n)} / ${sci(N)} = <b>${dfmt(n / N)}</b>`;
+  const parts = [`D now ${dfmt(Math.min(1, now))}`];
+  if (blocks.length) parts.push(`after the queue ${dfmt(queued)}`);
+  const end = after >= 1
+    ? `<span class="bad">after this Block ${dfmt(after)}: it breaks</span>`
+    : `after this Block <b>${dfmt(after)}</b>`;
+  document.getElementById('a-after').innerHTML = broken ? 'The pile is broken. Reset to try again.' : `${parts.join(' → ')} → ${end}`;
+}
+
+showBtn.addEventListener('click', () => {
+  answer.hidden = !answer.hidden;
+  showBtn.textContent = answer.hidden ? 'Show the answer' : 'Hide the answer';
+  showBtn.setAttribute('aria-expanded', String(!answer.hidden));
+  lastAnswer = '';
+  syncAnswer();
+  layout();
+});
+
+sendBtn.addEventListener('click', () => {
+  send(currentDs(), currentN());
+  dismissHint();
+});
+resetBtn.addEventListener('click', () => { reset(); lastAnswer = ''; });
+
+let lastQueue = '';
+function syncQueue() {
+  let text;
+  if (broken) text = 'Broken. Reset to repair the pile.';
+  else if (!blocks.length) text = 'Nothing on the way.';
+  else {
+    const b = blocks[0], waiting = blocks.length - 1;
+    const verb = b.start <= clock ? 'Taking' : 'On the way:';
+    text = `${verb} ${b.ds} MPa × ${whole(b.n)}` + (waiting ? `, then ${waiting} more` : '');
+  }
+  if (text !== lastQueue) { queueEl.textContent = text; lastQueue = text; }
+  sendBtn.disabled = !!broken;
+}
+
+/* ----------------------------------------------------------------- loop */
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  advance(dt);
+  syncQueue();
+  syncAnswer();
+  render();
+  requestAnimationFrame(frame);
+}
+
+syncInputs();
+new ResizeObserver(resize).observe(cv);
+new ResizeObserver(layout).observe(controls);
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

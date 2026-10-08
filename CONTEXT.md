@@ -144,6 +144,32 @@ _Avoid_: correlation (that is its integral over frequency), spatial spectrum
 The outline of a 15 MW-class rotor drawn in the **Wind field** for scale. It does not respond to the wind.
 _Avoid_: turbine, disc
 
+### Fatigue lab
+
+**Fatigue lab**:
+The **Pile** takes constant-amplitude stress cycles at a **Hot spot** and accumulates **Damage** by the Palmgren–Miner rule until it breaks at D = 1. Load sequences are not superposed and cycles are not rainflow counted. Those belong to a later lab.
+_Avoid_: S-N applet, Wöhler applet
+
+**Hot spot**:
+The welded detail at the mudline of the **Pile**, where the stress cycles act and the **Damage** shows.
+_Avoid_: weld, crack site, critical point
+
+**Stress range (Δσ)**:
+Peak-to-peak stress of a cycle at the **Hot spot**, in MPa. It is what the **S-N curve** is read with. It is set directly; no load or dynamics turns a force into it.
+_Avoid_: amplitude (that is half of it), load, stress
+
+**S-N curve**:
+The number of cycles N to failure at a constant **Stress range**, drawn on log-log axes: a DNV-RP-C203 D-curve in air, slope m = 3 up to 10⁷ cycles and m = 5 beyond. Log-log is a deliberate exception to the labs' linear axes, since on them the curve is the straight line every standard draws.
+_Avoid_: Wöhler curve (fine in a lecture), fatigue curve
+
+**Damage (D)**:
+The Palmgren–Miner sum Σ nᵢ/Nᵢ over everything the **Hot spot** has taken: nᵢ cycles at a **Stress range** whose **S-N curve** life is Nᵢ. The **Pile** fails when D reaches 1.
+_Avoid_: fatigue, usage, life consumed
+
+**Block**:
+n cycles at one **Stress range**, sent to the **Hot spot** together. Blocks queue and play in the order they were sent. Each one adds n/N to the **Damage**, whatever came before it.
+_Avoid_: load case, batch, signal, sine
+
 ## Relationships
 
 - A **Tap** or **Shake** acts at one height; the **Probe** reads at another (or the same).
@@ -152,6 +178,7 @@ _Avoid_: turbine, disc
 - The **Kaimal spectrum** and the **Coherence** together decide a **Wind field**; either can change while the other stays put.
 - Under **Frozen turbulence** U sets only how fast the **Wind field** passes and where the **Kaimal spectrum** sits in frequency, never the field's shape in space.
 - A **Release** in exactly one **Mode**'s shape stays in that shape; any other **Release** is a mix of both.
+- **Blocks** at the same **Stress range** add into one count; the **Damage** they cause together does not depend on the order they came in.
 - A heavier **Nacelle** lowers every natural frequency and moves the top of the **Pile** towards being a node of the second **Mode**.
 
 ## Flagged ambiguities

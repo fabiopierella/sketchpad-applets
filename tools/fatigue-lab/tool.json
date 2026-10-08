@@ -1,0 +1,8 @@
+{
+  "name": "Fatigue lab",
+  "description": "Send blocks of stress cycles to the welded hot spot of a pile. A damage bar fills by the Palmgren–Miner rule, the cycles pile up as bars on the S-N curve, and at D = 1 the pile snaps.",
+  "status": "live",
+  "entry": "index.html",
+  "tags": ["fatigue", "structures", "S-N curve"],
+  "course": "46211"
+}
